@@ -13,9 +13,6 @@ st.set_page_config(
 
 FILE = "pelanggan.csv"
 
-# =====================
-# FUNGSI DATA
-# =====================
 def load_data():
     if os.path.exists(FILE):
         return pd.read_csv(FILE)
@@ -34,6 +31,23 @@ def rapikan_nomor_wa(nomor):
     if nomor.startswith("08"):
         nomor = "62" + nomor[1:]
     return nomor
+
+def buat_pesan_invoice(row):
+    return f"""Assalamualaikum Bapak/Ibu {row['Nama']}
+
+Kami informasikan bahwa tagihan internet JASUND.NET untuk bulan ini sudah terbit.
+
+Rincian tagihan:
+Nama: {row['Nama']}
+Paket: {row['Paket']}
+Tagihan: {format_rupiah(row['Harga'])}
+Jatuh tempo: besok tanggal {int(row['Jatuh Tempo'])}
+
+Mohon melakukan pembayaran sebelum jatuh tempo agar layanan internet tetap aktif dan lancar.
+
+Terima kasih atas kepercayaan Bapak/Ibu menggunakan layanan JASUND.NET.
+
+Admin JASUND.NET"""
 
 def kirim_fonnte(token, target, pesan):
     url = "https://api.fonnte.com/send"
@@ -55,25 +69,11 @@ def kirim_telegram(bot_token, chat_id, pesan):
 
 df = load_data()
 
-# =====================
-# SIDEBAR SETTING
-# =====================
 st.sidebar.title("⚙️ Setting Notifikasi")
 
-fonnte_token = st.sidebar.text_input(
-    "Token Fonnte",
-    type="password",
-    help="Masukkan token Fonnte kang"
-)
-
-telegram_token = st.sidebar.text_input(
-    "Token Bot Telegram",
-    type="password"
-)
-
-telegram_chat_id = st.sidebar.text_input(
-    "Chat ID Telegram Admin"
-)
+fonnte_token = st.sidebar.text_input("Token Fonnte", type="password")
+telegram_token = st.sidebar.text_input("Token Bot Telegram", type="password")
+telegram_chat_id = st.sidebar.text_input("Chat ID Telegram Admin")
 
 menu = st.sidebar.radio(
     "Menu",
@@ -81,28 +81,22 @@ menu = st.sidebar.radio(
         "Dashboard",
         "Tambah Pelanggan",
         "Data Pelanggan",
+        "Edit / Hapus Pelanggan",
         "Invoice H-1",
         "Pembayaran",
         "Rekap"
     ]
 )
 
-# =====================
-# HEADER
-# =====================
 st.title("📡 JASUND.NET BILLING")
 st.caption("Aplikasi Billing dan Invoice Otomatis JASUND.NET")
 
-# =====================
-# DASHBOARD
-# =====================
 if menu == "Dashboard":
     total = len(df)
     belum = len(df[df["Status"] == "Belum Bayar"]) if total > 0 else 0
     lunas = len(df[df["Status"] == "Lunas"]) if total > 0 else 0
-
     besok = date.today() + timedelta(days=1)
-    h1 = len(df[df["Jatuh Tempo"] == besok.day]) if total > 0 else 0
+    h1 = len(df[(df["Jatuh Tempo"] == besok.day) & (df["Status"] == "Belum Bayar")]) if total > 0 else 0
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Pelanggan", total)
@@ -110,11 +104,8 @@ if menu == "Dashboard":
     c3.metric("Lunas", lunas)
     c4.metric("Jatuh Tempo Besok", h1)
 
-    st.info("Menu Invoice H-1 akan menampilkan pelanggan yang jatuh tempo besok.")
+    st.info("Invoice H-1 akan menampilkan pelanggan yang jatuh tempo besok dan statusnya masih Belum Bayar.")
 
-# =====================
-# TAMBAH PELANGGAN
-# =====================
 elif menu == "Tambah Pelanggan":
     st.subheader("➕ Tambah Pelanggan")
 
@@ -122,21 +113,9 @@ elif menu == "Tambah Pelanggan":
         nama = st.text_input("Nama Pelanggan")
         wa = st.text_input("Nomor WhatsApp", placeholder="Contoh: 6281234567890")
         alamat = st.text_area("Alamat")
-
-        paket = st.selectbox(
-            "Paket Internet",
-            ["5 Mbps", "6 Mbps", "7 Mbps", "8 Mbps", "9 Mbps", "10 Mbps", "Custom"]
-        )
-
+        paket = st.selectbox("Paket Internet", ["5 Mbps", "6 Mbps", "7 Mbps", "8 Mbps", "9 Mbps", "10 Mbps", "Custom"])
         harga = st.number_input("Harga Bulanan", min_value=0, step=10000)
-
-        jatuh_tempo = st.number_input(
-            "Tanggal Jatuh Tempo",
-            min_value=1,
-            max_value=31,
-            step=1
-        )
-
+        jatuh_tempo = st.number_input("Tanggal Jatuh Tempo", min_value=1, max_value=31, step=1)
         simpan = st.form_submit_button("Simpan")
 
         if simpan:
@@ -152,25 +131,81 @@ elif menu == "Tambah Pelanggan":
                     "Jatuh Tempo": jatuh_tempo,
                     "Status": "Belum Bayar"
                 }])
-
                 df_baru = pd.concat([df, baru], ignore_index=True)
                 save_data(df_baru)
                 st.success("Pelanggan berhasil disimpan.")
 
-# =====================
-# DATA PELANGGAN
-# =====================
 elif menu == "Data Pelanggan":
     st.subheader("👥 Data Pelanggan")
 
     if len(df) == 0:
         st.warning("Belum ada pelanggan.")
     else:
-        st.dataframe(df, use_container_width=True)
+        cari = st.text_input("Cari pelanggan")
+        tampil = df.copy()
 
-# =====================
-# INVOICE H-1
-# =====================
+        if cari:
+            tampil = tampil[
+                tampil.astype(str).apply(
+                    lambda row: row.str.contains(cari, case=False).any(),
+                    axis=1
+                )
+            ]
+
+        st.dataframe(tampil, use_container_width=True)
+
+        st.download_button(
+            "Download Data CSV",
+            data=df.to_csv(index=False).encode("utf-8"),
+            file_name="pelanggan_jasund_net.csv",
+            mime="text/csv"
+        )
+
+elif menu == "Edit / Hapus Pelanggan":
+    st.subheader("✏️ Edit / Hapus Pelanggan")
+
+    if len(df) == 0:
+        st.warning("Belum ada pelanggan.")
+    else:
+        nama_pilih = st.selectbox("Pilih Pelanggan", df["Nama"].tolist())
+        idx = df[df["Nama"] == nama_pilih].index[0]
+
+        paket_list = ["5 Mbps", "6 Mbps", "7 Mbps", "8 Mbps", "9 Mbps", "10 Mbps", "Custom"]
+        paket_lama = df.loc[idx, "Paket"]
+        paket_index = paket_list.index(paket_lama) if paket_lama in paket_list else 0
+
+        nama = st.text_input("Nama", value=str(df.loc[idx, "Nama"]))
+        wa = st.text_input("No WA", value=str(df.loc[idx, "No WA"]))
+        alamat = st.text_area("Alamat", value=str(df.loc[idx, "Alamat"]))
+        paket = st.selectbox("Paket", paket_list, index=paket_index)
+        harga = st.number_input("Harga", min_value=0, value=int(df.loc[idx, "Harga"]), step=10000)
+        jatuh_tempo = st.number_input("Tanggal Jatuh Tempo", min_value=1, max_value=31, value=int(df.loc[idx, "Jatuh Tempo"]))
+        status = st.selectbox("Status", ["Belum Bayar", "Lunas"], index=0 if df.loc[idx, "Status"] == "Belum Bayar" else 1)
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("💾 Update Data"):
+                df.loc[idx, "Nama"] = nama
+                df.loc[idx, "No WA"] = rapikan_nomor_wa(wa)
+                df.loc[idx, "Alamat"] = alamat
+                df.loc[idx, "Paket"] = paket
+                df.loc[idx, "Harga"] = harga
+                df.loc[idx, "Jatuh Tempo"] = jatuh_tempo
+                df.loc[idx, "Status"] = status
+                save_data(df)
+                st.success("Data pelanggan berhasil diperbarui.")
+
+        with col2:
+            yakin = st.checkbox("Saya yakin ingin menghapus pelanggan ini")
+            if st.button("🗑️ Hapus Pelanggan"):
+                if yakin:
+                    df = df.drop(idx).reset_index(drop=True)
+                    save_data(df)
+                    st.success("Pelanggan berhasil dihapus.")
+                else:
+                    st.warning("Centang konfirmasi dulu sebelum menghapus.")
+
 elif menu == "Invoice H-1":
     st.subheader("📨 Invoice H-1 Otomatis")
 
@@ -178,85 +213,50 @@ elif menu == "Invoice H-1":
         st.warning("Belum ada pelanggan.")
     else:
         besok = date.today() + timedelta(days=1)
-
-        calon = df[
-            (df["Jatuh Tempo"] == besok.day) &
-            (df["Status"] == "Belum Bayar")
-        ]
+        calon = df[(df["Jatuh Tempo"] == besok.day) & (df["Status"] == "Belum Bayar")]
 
         st.info(f"Sistem mencari pelanggan yang jatuh tempo besok tanggal {besok.day}.")
 
         if len(calon) == 0:
-            st.success("Tidak ada pelanggan yang jatuh tempo besok.")
+            st.success("Tidak ada pelanggan jatuh tempo besok.")
         else:
-            st.write(f"Jumlah pelanggan H-1: **{len(calon)} orang**")
-
-            laporan_telegram = "📡 JASUND.NET BILLING\n\nPelanggan jatuh tempo besok:\n\n"
+            laporan = "📡 JASUND.NET BILLING\n\nPelanggan jatuh tempo besok:\n\n"
 
             for i, row in calon.iterrows():
-                pesan = f"""Assalamualaikum Bapak/Ibu {row['Nama']}
-
-Kami informasikan tagihan internet JASUND.NET:
-
-Paket: {row['Paket']}
-Tagihan: {format_rupiah(row['Harga'])}
-Jatuh tempo: besok tanggal {int(row['Jatuh Tempo'])}
-
-Mohon melakukan pembayaran sebelum jatuh tempo.
-Terima kasih.
-
-Admin JASUND.NET"""
-
+                pesan = buat_pesan_invoice(row)
                 no_wa = rapikan_nomor_wa(row["No WA"])
-
-                laporan_telegram += f"- {row['Nama']} | {row['Paket']} | {format_rupiah(row['Harga'])} | WA: {no_wa}\n"
+                laporan += f"- {row['Nama']} | {row['Paket']} | {format_rupiah(row['Harga'])} | WA: {no_wa}\n"
 
                 link_manual = "https://wa.me/" + no_wa + "?text=" + urllib.parse.quote(pesan)
 
                 st.markdown("---")
                 st.write("Nama:", row["Nama"])
-                st.write("Nomor WA:", no_wa)
+                st.write("No WA:", no_wa)
                 st.write("Paket:", row["Paket"])
                 st.write("Tagihan:", format_rupiah(row["Harga"]))
+                st.text_area("Preview Pesan Invoice", pesan, height=230, key=f"preview_{i}")
 
                 st.link_button("Kirim Manual WhatsApp", link_manual)
 
                 if fonnte_token:
-                    if st.button(f"Kirim Fonnte ke {row['Nama']}", key=f"fonnte_{i}"):
-                        try:
-                            hasil = kirim_fonnte(fonnte_token, no_wa, pesan)
-                            if hasil.status_code == 200:
-                                st.success(f"Invoice berhasil dikirim ke {row['Nama']}")
-                            else:
-                                st.error(f"Gagal kirim: {hasil.text}")
-                        except Exception as e:
-                            st.error(f"Error: {e}")
+                    if st.button(f"Kirim Fonnte ke {row['Nama']}", key=f"kirim_{i}"):
+                        hasil = kirim_fonnte(fonnte_token, no_wa, pesan)
+                        if hasil.status_code == 200:
+                            st.success(f"Invoice berhasil dikirim ke {row['Nama']}")
+                        else:
+                            st.error(f"Gagal kirim: {hasil.text}")
 
             st.markdown("---")
 
             if st.button("🚀 Kirim Semua Invoice H-1 via Fonnte"):
                 if not fonnte_token:
-                    st.error("Token Fonnte belum diisi di sidebar.")
+                    st.error("Token Fonnte belum diisi.")
                 else:
                     sukses = 0
                     gagal = 0
-
                     for _, row in calon.iterrows():
-                        pesan = f"""Assalamualaikum Bapak/Ibu {row['Nama']}
-
-Kami informasikan tagihan internet JASUND.NET:
-
-Paket: {row['Paket']}
-Tagihan: {format_rupiah(row['Harga'])}
-Jatuh tempo: besok tanggal {int(row['Jatuh Tempo'])}
-
-Mohon melakukan pembayaran sebelum jatuh tempo.
-Terima kasih.
-
-Admin JASUND.NET"""
-
+                        pesan = buat_pesan_invoice(row)
                         no_wa = rapikan_nomor_wa(row["No WA"])
-
                         try:
                             hasil = kirim_fonnte(fonnte_token, no_wa, pesan)
                             if hasil.status_code == 200:
@@ -265,30 +265,18 @@ Admin JASUND.NET"""
                                 gagal += 1
                         except:
                             gagal += 1
-
-                    st.success(f"Selesai. Berhasil: {sukses}, Gagal: {gagal}")
+                    st.success(f"Selesai kirim invoice. Berhasil: {sukses}, Gagal: {gagal}")
 
             if st.button("🔔 Kirim Laporan ke Telegram Admin"):
                 if not telegram_token or not telegram_chat_id:
                     st.error("Token Telegram dan Chat ID belum diisi.")
                 else:
-                    try:
-                        hasil = kirim_telegram(
-                            telegram_token,
-                            telegram_chat_id,
-                            laporan_telegram
-                        )
+                    hasil = kirim_telegram(telegram_token, telegram_chat_id, laporan)
+                    if hasil.status_code == 200:
+                        st.success("Laporan Telegram berhasil dikirim.")
+                    else:
+                        st.error(f"Gagal Telegram: {hasil.text}")
 
-                        if hasil.status_code == 200:
-                            st.success("Laporan Telegram berhasil dikirim.")
-                        else:
-                            st.error(f"Gagal kirim Telegram: {hasil.text}")
-                    except Exception as e:
-                        st.error(f"Error Telegram: {e}")
-
-# =====================
-# PEMBAYARAN
-# =====================
 elif menu == "Pembayaran":
     st.subheader("💰 Update Pembayaran")
 
@@ -307,11 +295,8 @@ elif menu == "Pembayaran":
         if st.button("Simpan Status"):
             df.loc[idx, "Status"] = status_baru
             save_data(df)
-            st.success("Status berhasil diperbarui.")
+            st.success("Status pembayaran berhasil diperbarui.")
 
-# =====================
-# REKAP
-# =====================
 elif menu == "Rekap":
     st.subheader("📊 Rekap Tagihan")
 
