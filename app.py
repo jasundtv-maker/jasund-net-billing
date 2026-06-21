@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 import os
 import requests
 import urllib.parse
@@ -13,21 +13,38 @@ st.set_page_config(
 
 FILE = "pelanggan.csv"
 
+def tanggal_wib():
+    return (datetime.utcnow() + timedelta(hours=7)).date()
+
 def load_data():
     if os.path.exists(FILE):
-        return pd.read_csv(FILE)
+        df = pd.read_csv(FILE, dtype=str)
+
+        for col in ["Nama", "No WA", "Alamat", "Paket", "Harga", "Jatuh Tempo", "Status"]:
+            if col not in df.columns:
+                df[col] = ""
+
+        df["Harga"] = pd.to_numeric(df["Harga"], errors="coerce").fillna(0).astype(int)
+        df["Jatuh Tempo"] = pd.to_numeric(df["Jatuh Tempo"], errors="coerce").fillna(1).astype(int)
+        df["No WA"] = df["No WA"].astype(str)
+        df["Status"] = df["Status"].replace("", "Belum Bayar").fillna("Belum Bayar")
+
+        return df[["Nama", "No WA", "Alamat", "Paket", "Harga", "Jatuh Tempo", "Status"]]
+
     return pd.DataFrame(columns=[
         "Nama", "No WA", "Alamat", "Paket", "Harga", "Jatuh Tempo", "Status"
     ])
 
 def save_data(df):
+    df = df.copy()
+    df["No WA"] = df["No WA"].astype(str)
     df.to_csv(FILE, index=False)
 
 def format_rupiah(angka):
     return f"Rp {int(angka):,}".replace(",", ".")
 
 def rapikan_nomor_wa(nomor):
-    nomor = str(nomor).replace(" ", "").replace("-", "")
+    nomor = str(nomor).replace(" ", "").replace("-", "").replace("+", "")
     if nomor.startswith("08"):
         nomor = "62" + nomor[1:]
     return nomor
@@ -70,7 +87,6 @@ def kirim_telegram(bot_token, chat_id, pesan):
 df = load_data()
 
 st.sidebar.title("⚙️ Setting Notifikasi")
-
 fonnte_token = st.sidebar.text_input("Token Fonnte", type="password")
 telegram_token = st.sidebar.text_input("Token Bot Telegram", type="password")
 telegram_chat_id = st.sidebar.text_input("Chat ID Telegram Admin")
@@ -91,13 +107,16 @@ menu = st.sidebar.radio(
 st.title("📡 JASUND.NET BILLING")
 st.caption("Aplikasi Billing dan Invoice Otomatis JASUND.NET")
 
+hari_ini = tanggal_wib()
+besok = hari_ini + timedelta(days=1)
+
 if menu == "Dashboard":
-    st.write("Hari ini:", date.today())
-    st.write("Besok:", date.today() + timedelta(days=1))
+    st.write("Hari ini WIB:", hari_ini)
+    st.write("Besok WIB:", besok)
+
     total = len(df)
     belum = len(df[df["Status"] == "Belum Bayar"]) if total > 0 else 0
     lunas = len(df[df["Status"] == "Lunas"]) if total > 0 else 0
-    besok = date.today() + timedelta(days=1)
     h1 = len(df[(df["Jatuh Tempo"] == besok.day) & (df["Status"] == "Belum Bayar")]) if total > 0 else 0
 
     c1, c2, c3, c4 = st.columns(4)
@@ -106,7 +125,7 @@ if menu == "Dashboard":
     c3.metric("Lunas", lunas)
     c4.metric("Jatuh Tempo Besok", h1)
 
-    st.info("Invoice H-1 akan menampilkan pelanggan yang jatuh tempo besok dan statusnya masih Belum Bayar.")
+    st.info("Invoice H-1 mengikuti tanggal WIB Indonesia.")
 
 elif menu == "Tambah Pelanggan":
     st.subheader("➕ Tambah Pelanggan")
@@ -126,11 +145,11 @@ elif menu == "Tambah Pelanggan":
             else:
                 baru = pd.DataFrame([{
                     "Nama": nama,
-                    "No WA": rapikan_nomor_wa(wa),
+                    "No WA": str(rapikan_nomor_wa(wa)),
                     "Alamat": alamat,
                     "Paket": paket,
-                    "Harga": harga,
-                    "Jatuh Tempo": jatuh_tempo,
+                    "Harga": int(harga),
+                    "Jatuh Tempo": int(jatuh_tempo),
                     "Status": "Belum Bayar"
                 }])
                 df_baru = pd.concat([df, baru], ignore_index=True)
@@ -156,24 +175,17 @@ elif menu == "Data Pelanggan":
 
         st.dataframe(tampil, use_container_width=True)
 
-        st.download_button(
-            "Download Data CSV",
-            data=df.to_csv(index=False).encode("utf-8"),
-            file_name="pelanggan_jasund_net.csv",
-            mime="text/csv"
-        )
-
 elif menu == "Edit / Hapus Pelanggan":
     st.subheader("✏️ Edit / Hapus Pelanggan")
 
     if len(df) == 0:
         st.warning("Belum ada pelanggan.")
     else:
-        nama_pilih = st.selectbox("Pilih Pelanggan", df["Nama"].tolist())
-        idx = df[df["Nama"] == nama_pilih].index[0]
+        nama_pilih = st.selectbox("Pilih Pelanggan", df["Nama"].astype(str).tolist())
+        idx = df[df["Nama"].astype(str) == nama_pilih].index[0]
 
         paket_list = ["5 Mbps", "6 Mbps", "7 Mbps", "8 Mbps", "9 Mbps", "10 Mbps", "Custom"]
-        paket_lama = df.loc[idx, "Paket"]
+        paket_lama = str(df.loc[idx, "Paket"])
         paket_index = paket_list.index(paket_lama) if paket_lama in paket_list else 0
 
         nama = st.text_input("Nama", value=str(df.loc[idx, "Nama"]))
@@ -182,21 +194,23 @@ elif menu == "Edit / Hapus Pelanggan":
         paket = st.selectbox("Paket", paket_list, index=paket_index)
         harga = st.number_input("Harga", min_value=0, value=int(df.loc[idx, "Harga"]), step=10000)
         jatuh_tempo = st.number_input("Tanggal Jatuh Tempo", min_value=1, max_value=31, value=int(df.loc[idx, "Jatuh Tempo"]))
-        status = st.selectbox("Status", ["Belum Bayar", "Lunas"], index=0 if df.loc[idx, "Status"] == "Belum Bayar" else 1)
+        status_lama = str(df.loc[idx, "Status"])
+        status = st.selectbox("Status", ["Belum Bayar", "Lunas"], index=0 if status_lama != "Lunas" else 1)
 
         col1, col2 = st.columns(2)
 
         with col1:
             if st.button("💾 Update Data"):
-                df.loc[idx, "Nama"] = nama
-                df.loc[idx, "No WA"] = rapikan_nomor_wa(wa)
-                df.loc[idx, "Alamat"] = alamat
-                df.loc[idx, "Paket"] = paket
-                df.loc[idx, "Harga"] = harga
-                df.loc[idx, "Jatuh Tempo"] = jatuh_tempo
-                df.loc[idx, "Status"] = status
+                df.at[idx, "Nama"] = str(nama)
+                df.at[idx, "No WA"] = str(rapikan_nomor_wa(wa))
+                df.at[idx, "Alamat"] = str(alamat)
+                df.at[idx, "Paket"] = str(paket)
+                df.at[idx, "Harga"] = int(harga)
+                df.at[idx, "Jatuh Tempo"] = int(jatuh_tempo)
+                df.at[idx, "Status"] = str(status)
                 save_data(df)
                 st.success("Data pelanggan berhasil diperbarui.")
+                st.rerun()
 
         with col2:
             yakin = st.checkbox("Saya yakin ingin menghapus pelanggan ini")
@@ -205,6 +219,7 @@ elif menu == "Edit / Hapus Pelanggan":
                     df = df.drop(idx).reset_index(drop=True)
                     save_data(df)
                     st.success("Pelanggan berhasil dihapus.")
+                    st.rerun()
                 else:
                     st.warning("Centang konfirmasi dulu sebelum menghapus.")
 
@@ -214,10 +229,9 @@ elif menu == "Invoice H-1":
     if len(df) == 0:
         st.warning("Belum ada pelanggan.")
     else:
-        besok = date.today() + timedelta(days=1)
         calon = df[(df["Jatuh Tempo"] == besok.day) & (df["Status"] == "Belum Bayar")]
 
-        st.info(f"Sistem mencari pelanggan yang jatuh tempo besok tanggal {besok.day}.")
+        st.info(f"Sistem mencari pelanggan yang jatuh tempo besok tanggal {besok.day} WIB.")
 
         if len(calon) == 0:
             st.success("Tidak ada pelanggan jatuh tempo besok.")
@@ -285,8 +299,8 @@ elif menu == "Pembayaran":
     if len(df) == 0:
         st.warning("Belum ada pelanggan.")
     else:
-        nama = st.selectbox("Pilih Pelanggan", df["Nama"].tolist())
-        idx = df[df["Nama"] == nama].index[0]
+        nama = st.selectbox("Pilih Pelanggan", df["Nama"].astype(str).tolist())
+        idx = df[df["Nama"].astype(str) == nama].index[0]
 
         st.write("Paket:", df.loc[idx, "Paket"])
         st.write("Tagihan:", format_rupiah(df.loc[idx, "Harga"]))
@@ -295,9 +309,10 @@ elif menu == "Pembayaran":
         status_baru = st.selectbox("Status Baru", ["Belum Bayar", "Lunas"])
 
         if st.button("Simpan Status"):
-            df.loc[idx, "Status"] = status_baru
+            df.at[idx, "Status"] = status_baru
             save_data(df)
             st.success("Status pembayaran berhasil diperbarui.")
+            st.rerun()
 
 elif menu == "Rekap":
     st.subheader("📊 Rekap Tagihan")
