@@ -92,6 +92,8 @@ st.title("📡 JASUND.NET BILLING")
 st.caption("Aplikasi Billing dan Invoice Otomatis JASUND.NET")
 
 if menu == "Dashboard":
+    st.write("Hari ini:", date.today())
+    st.write("Besok:", date.today() + timedelta(days=1))
     total = len(df)
     belum = len(df[df["Status"] == "Belum Bayar"]) if total > 0 else 0
     lunas = len(df[df["Status"] == "Lunas"]) if total > 0 else 0
