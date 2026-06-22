@@ -9,7 +9,7 @@ from fpdf import FPDF
 from io import BytesIO
 
 st.set_page_config(
-    page_title="JASUND.NET V10 ULTIMATE CEO",
+    page_title="JASUND.NET V11 SUPER ISP",
     page_icon="📡",
     layout="wide"
 )
@@ -23,6 +23,9 @@ KOLOM = [
     "METODE BAYAR", "CATATAN"
 ]
 
+# =========================
+# UTILITAS WAKTU
+# =========================
 def tanggal_wib():
     return (datetime.utcnow() + timedelta(hours=7)).date()
 
@@ -35,6 +38,9 @@ def bulan_tahun():
     tgl = tanggal_wib()
     return f"{bulan_id[tgl.month]} {tgl.year}"
 
+# =========================
+# GOOGLE SHEETS
+# =========================
 def koneksi_sheet():
     scope = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -82,6 +88,7 @@ def load_data():
     })
 
     df["PERIODE"] = df["PERIODE"].replace("", bulan_tahun()).fillna(bulan_tahun())
+    df["CATATAN"] = df["CATATAN"].fillna("")
 
     return df[KOLOM]
 
@@ -92,6 +99,9 @@ def save_data(df):
     sheet.clear()
     sheet.update(data)
 
+# =========================
+# FORMAT & API
+# =========================
 def rupiah(x):
     return f"Rp {int(x):,}".replace(",", ".")
 
@@ -130,6 +140,9 @@ def kirim_telegram(token, chat_id, pesan):
         timeout=30
     )
 
+# =========================
+# PESAN WA
+# =========================
 def pesan_invoice(row):
     no_invoice = row["NO INVOICE"] if row["NO INVOICE"] else buat_invoice_no(row)
     return f"""Assalamualaikum Bapak/Ibu {row['NAMA']}
@@ -186,6 +199,21 @@ Semoga layanan internet JASUND.NET tetap lancar dan bermanfaat.
 Admin JASUND.NET
 """
 
+def pesan_suspend(row):
+    return f"""Assalamualaikum Bapak/Ibu {row['NAMA']}
+
+Kami informasikan bahwa status akun internet JASUND.NET saat ini:
+SUSPEND / DIBLOKIR SEMENTARA
+
+Paket : {row['PAKET']}
+Tagihan : {rupiah(row['HARGA'])}
+Periode : {row['PERIODE']}
+
+Silakan melakukan pembayaran atau menghubungi admin JASUND.NET untuk aktivasi kembali.
+
+Admin JASUND.NET
+"""
+
 def tombol_wa(no, pesan, teks="💬 Kirim Manual WhatsApp"):
     link = "https://wa.me/" + no + "?text=" + urllib.parse.quote(pesan)
     st.markdown(
@@ -193,6 +221,9 @@ def tombol_wa(no, pesan, teks="💬 Kirim Manual WhatsApp"):
         unsafe_allow_html=True
     )
 
+# =========================
+# PDF
+# =========================
 def clean_text(text):
     return str(text).encode("latin-1", "replace").decode("latin-1")
 
@@ -341,6 +372,59 @@ def buat_pdf(row):
 
     return bytes(pdf.output(dest="S"))
 
+def buat_laporan_bulanan_pdf(df):
+    pdf = FPDF()
+    pdf.add_page()
+
+    pdf.set_fill_color(24, 78, 138)
+    pdf.rect(0, 0, 210, 25, "F")
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(0, 10, "LAPORAN BULANAN JASUND.NET", ln=True, align="C")
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 8, f"Periode: {bulan_tahun()} | Tanggal cetak: {tanggal_wib()}", ln=True, align="C")
+
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(12)
+
+    total_tagihan = int(df["HARGA"].sum()) if len(df) else 0
+    total_lunas = int(df[df["STATUS"] == "Lunas"]["HARGA"].sum()) if len(df) else 0
+    total_belum = int(df[df["STATUS"] != "Lunas"]["HARGA"].sum()) if len(df) else 0
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Ringkasan:", ln=True)
+
+    pdf.set_font("Helvetica", "", 11)
+    pdf.cell(0, 8, f"Total Pelanggan: {len(df)}", ln=True)
+    pdf.cell(0, 8, f"Total Tagihan: {rupiah(total_tagihan)}", ln=True)
+    pdf.cell(0, 8, f"Sudah Lunas: {rupiah(total_lunas)}", ln=True)
+    pdf.cell(0, 8, f"Belum Masuk: {rupiah(total_belum)}", ln=True)
+
+    pdf.ln(8)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_fill_color(58, 95, 160)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(55, 8, "Nama", border=1, fill=True)
+    pdf.cell(35, 8, "Paket", border=1, fill=True)
+    pdf.cell(35, 8, "Harga", border=1, fill=True)
+    pdf.cell(35, 8, "Status", border=1, fill=True)
+    pdf.cell(25, 8, "JT", border=1, fill=True, ln=True)
+
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Helvetica", "", 9)
+
+    for _, row in df.head(35).iterrows():
+        pdf.cell(55, 7, clean_text(row["NAMA"])[:25], border=1)
+        pdf.cell(35, 7, clean_text(row["PAKET"])[:14], border=1)
+        pdf.cell(35, 7, rupiah(row["HARGA"]), border=1)
+        pdf.cell(35, 7, clean_text(row["STATUS"])[:18], border=1)
+        pdf.cell(25, 7, str(row["JATUH TEMPO"]), border=1, ln=True)
+
+    return bytes(pdf.output(dest="S"))
+
+# =========================
+# FITUR TAMBAHAN
+# =========================
 def warna_catatan(text):
     s = str(text).lower()
     if "vip" in s:
@@ -357,7 +441,14 @@ def export_excel_bytes(df):
         df.to_excel(writer, index=False, sheet_name="Pelanggan")
     return output.getvalue()
 
+def portal_pelanggan(df, no_wa):
+    nomor = rapikan_wa(no_wa)
+    hasil = df[df["NO WA"].astype(str).apply(rapikan_wa) == nomor]
+    return hasil
+
+# =========================
 # DATA
+# =========================
 df = load_data()
 hari_ini = tanggal_wib()
 besok = hari_ini + timedelta(days=1)
@@ -377,7 +468,9 @@ sudah_lunas = df[df["STATUS"] == "Lunas"]["HARGA"].sum() if total else 0
 belum_masuk = df[df["STATUS"] != "Lunas"]["HARGA"].sum() if total else 0
 persen_lunas = round((lunas / total) * 100) if total else 0
 
+# =========================
 # STYLE
+# =========================
 st.markdown("""
 <style>
 .stApp {
@@ -455,8 +548,11 @@ h1,h2,h3,h4,p,label {color:#f8fafc !important;}
 </style>
 """, unsafe_allow_html=True)
 
+# =========================
+# SIDEBAR
+# =========================
 st.sidebar.title("📡 JASUND.NET")
-st.sidebar.caption("V10 Ultimate CEO Edition")
+st.sidebar.caption("V11 Super ISP Premium Max")
 
 menu = st.sidebar.radio("Menu", [
     "🏠 Dashboard CEO",
@@ -468,12 +564,15 @@ menu = st.sidebar.radio("Menu", [
     "📄 Invoice PDF",
     "📣 WA Blast",
     "📈 Export Excel",
+    "📑 Laporan Bulanan PDF",
+    "🌐 Portal Pelanggan",
+    "🛠️ Dashboard Teknisi",
     "📊 Rekap",
     "⚙️ Status Sistem"
 ])
 
-st.markdown('<div class="main-title">📡 JASUND.NET V10 ULTIMATE CEO EDITION</div>', unsafe_allow_html=True)
-st.write("Dashboard CEO • VIP Customer • WA Blast • Export Excel • Google Sheets • Auto Billing H-1")
+st.markdown('<div class="main-title">📡 JASUND.NET V11 SUPER ISP PREMIUM MAX</div>', unsafe_allow_html=True)
+st.write("Dashboard CEO • Portal Pelanggan • Laporan PDF • Teknisi • WA Blast • Google Sheets • Auto Billing H-1")
 
 st.markdown(f"""
 <div class="running">
@@ -483,6 +582,9 @@ st.markdown(f"""
 
 st.write("")
 
+# =========================
+# MENU
+# =========================
 if menu == "🏠 Dashboard CEO":
     c1, c2, c3, c4 = st.columns(4)
     cards = [
@@ -629,7 +731,7 @@ elif menu == "✏️ Edit / Hapus":
         periode = st.text_input("Periode", value=str(df.loc[idx, "PERIODE"]))
         catatan = st.text_area("Catatan", value=str(df.loc[idx, "CATATAN"]))
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
 
         with col1:
             if st.button("💾 UPDATE DATA"):
@@ -652,8 +754,21 @@ elif menu == "✏️ Edit / Hapus":
                 st.rerun()
 
         with col2:
+            if st.button("⛔ SUSPEND AKUN"):
+                df.at[idx, "STATUS AKUN"] = "Suspend"
+                save_data(df)
+                no = rapikan_wa(df.loc[idx, "NO WA"])
+                if FONNTE_TOKEN:
+                    try:
+                        kirim_fonnte(FONNTE_TOKEN, no, pesan_suspend(df.loc[idx]))
+                    except Exception:
+                        pass
+                st.success("Akun disuspend.")
+                st.rerun()
+
+        with col3:
             yakin = st.checkbox("Saya yakin ingin menghapus pelanggan ini")
-            if st.button("🗑️ HAPUS PELANGGAN"):
+            if st.button("🗑️ HAPUS"):
                 if yakin:
                     df = df.drop(idx).reset_index(drop=True)
                     save_data(df)
@@ -761,7 +876,7 @@ elif menu == "📣 WA Blast":
     st.subheader("📣 WA Blast Pelanggan")
     st.warning("Gunakan fitur ini secukupnya agar nomor WA tidak dianggap spam.")
 
-    target = st.selectbox("Target", ["Semua Pelanggan", "Belum Bayar", "Lunas", "Aktif", "VIP"])
+    target = st.selectbox("Target", ["Semua Pelanggan", "Belum Bayar", "Lunas", "Aktif", "VIP", "Suspend"])
     pesan = st.text_area("Isi Pesan Broadcast", height=180)
 
     if target == "Semua Pelanggan":
@@ -772,6 +887,8 @@ elif menu == "📣 WA Blast":
         target_df = df[df["STATUS"] == "Lunas"]
     elif target == "Aktif":
         target_df = df[df["STATUS AKUN"] == "Aktif"]
+    elif target == "Suspend":
+        target_df = df[df["STATUS AKUN"] == "Suspend"]
     else:
         target_df = df[df["CATATAN"].astype(str).str.contains("VIP", case=False, na=False)]
 
@@ -813,6 +930,44 @@ elif menu == "📈 Export Excel":
         mime="text/csv"
     )
 
+elif menu == "📑 Laporan Bulanan PDF":
+    st.subheader("📑 Laporan Bulanan PDF")
+
+    pdf_laporan = buat_laporan_bulanan_pdf(df)
+    st.download_button(
+        "⬇️ DOWNLOAD LAPORAN BULANAN PDF",
+        data=pdf_laporan,
+        file_name=f"Laporan_Bulanan_JASUNDNET_{hari_ini}.pdf",
+        mime="application/pdf"
+    )
+
+elif menu == "🌐 Portal Pelanggan":
+    st.subheader("🌐 Portal Pelanggan")
+    st.info("Pelanggan bisa dicek memakai nomor WhatsApp. Ini masih untuk admin, nanti V12 bisa dibuat halaman khusus pelanggan.")
+
+    no_cari = st.text_input("Masukkan nomor WA pelanggan")
+    if no_cari:
+        hasil = portal_pelanggan(df, no_cari)
+        if len(hasil) == 0:
+            st.error("Data pelanggan tidak ditemukan.")
+        else:
+            row = hasil.iloc[0]
+            st.success("Data pelanggan ditemukan.")
+            st.write("Nama:", row["NAMA"])
+            st.write("Alamat:", row["ALAMAT"])
+            st.write("Paket:", row["PAKET"])
+            st.write("Tagihan:", rupiah(row["HARGA"]))
+            st.write("Jatuh Tempo:", row["JATUH TEMPO"])
+            st.write("Status Bayar:", row["STATUS"])
+            st.write("Status Akun:", row["STATUS AKUN"])
+
+elif menu == "🛠️ Dashboard Teknisi":
+    st.subheader("🛠️ Dashboard Teknisi")
+    st.write("Data ringkas untuk teknisi lapangan.")
+
+    teknisi_df = df[["NAMA", "NO WA", "ALAMAT", "PAKET", "STATUS AKUN", "CATATAN"]].copy()
+    st.dataframe(teknisi_df, use_container_width=True)
+
 elif menu == "📊 Rekap":
     st.subheader("📊 Rekap Tagihan")
     c1, c2, c3, c4 = st.columns(4)
@@ -833,7 +988,9 @@ elif menu == "⚙️ Status Sistem":
     ✅ Invoice PDF: Aktif<br>
     ✅ WA Blast: Aktif<br>
     ✅ Export Excel: Aktif<br>
-    ✅ Pelanggan VIP: Aktif<br>
-    ✅ Versi: JASUND.NET V10 ULTIMATE CEO EDITION
+    ✅ Laporan Bulanan PDF: Aktif<br>
+    ✅ Portal Pelanggan: Aktif<br>
+    ✅ Dashboard Teknisi: Aktif<br>
+    ✅ Versi: JASUND.NET V11 SUPER ISP PREMIUM MAX
     </div>
     """, unsafe_allow_html=True)
