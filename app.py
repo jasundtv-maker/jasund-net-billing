@@ -66,7 +66,7 @@ def rapikan_wa(no):
     return no
 
 def pesan_invoice(row):
-return f"""Assalamualaikum Bapak/Ibu {row['NAMA']}
+    return f"""Assalamualaikum Bapak/Ibu {row['NAMA']}
 
 Kami informasikan bahwa tagihan internet JASUND.NET untuk bulan ini telah terbit.
 
@@ -90,7 +90,7 @@ a.n. Aceng Abdul Roup
 
 Setelah melakukan pembayaran, mohon kirimkan bukti transfer kepada admin JASUND.NET.
 
-Pembayaran juga dapat dilakukan secara langsung ke kantor JASUND.NET.
+Pembayaran juga dapat dilakukan langsung ke kantor JASUND.NET.
 
 ⚠️ Abaikan pesan ini apabila Bapak/Ibu telah melakukan pembayaran sebelumnya.
 
