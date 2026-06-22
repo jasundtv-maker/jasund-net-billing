@@ -55,7 +55,12 @@ def load_data():
     df["HARGA"] = pd.to_numeric(df["HARGA"], errors="coerce").fillna(0).astype(int)
     df["JATUH TEMPO"] = pd.to_numeric(df["JATUH TEMPO"], errors="coerce").fillna(1).astype(int)
     df["NO WA"] = df["NO WA"].astype(str)
-    df["STATUS"] = df["STATUS"].replace("", "Belum Bayar").fillna("Belum Bayar")
+    df["STATUS"] = df["STATUS"].astype(str).str.strip().str.lower()
+    df["STATUS"] = df["STATUS"].replace({
+    "belum bayar": "Belum Bayar",
+    "lunas": "Lunas",
+    "menunggu verifikasi": "Menunggu Verifikasi"
+})
     df["STATUS AKUN"] = df["STATUS AKUN"].replace("", "Aktif").fillna("Aktif")
     df["PERIODE"] = df["PERIODE"].replace("", bulan_tahun()).fillna(bulan_tahun())
 
