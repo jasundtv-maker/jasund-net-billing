@@ -161,6 +161,30 @@ h1,h2,h3,h4,p,label {color:#f8fafc !important;}
     border-radius:18px;
     background:rgba(255,255,255,.08);
     border:1px solid rgba(255,255,255,.15);
+    /* Tombol Premium */
+.stButton > button {
+    background: linear-gradient(135deg,#22c55e,#06b6d4) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 12px !important;
+    font-weight: bold !important;
+    padding: 10px 20px !important;
+}
+
+.stButton > button:hover {
+    background: linear-gradient(135deg,#16a34a,#0284c7) !important;
+    color: white !important;
+}
+
+/* Link Button WhatsApp */
+.stLinkButton a {
+    background: linear-gradient(135deg,#25D366,#128C7E) !important;
+    color: white !important;
+    border-radius: 12px !important;
+    padding: 10px 20px !important;
+    font-weight: bold !important;
+    text-decoration: none !important;
+}
 }
 </style>
 """, unsafe_allow_html=True)
