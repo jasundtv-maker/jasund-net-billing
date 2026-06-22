@@ -7,17 +7,26 @@ import gspread
 from google.oauth2.service_account import Credentials
 from fpdf import FPDF
 
-st.set_page_config(page_title="JASUND.NET V8 ISP PRO", page_icon="📡", layout="wide")
+st.set_page_config(
+    page_title="JASUND.NET V9 ISP PRO MAX",
+    page_icon="📡",
+    layout="wide"
+)
 
 SHEET_ID = "1fDoA-aioZsUvx4aaTcita8ZkYapjR5bdf7ZlbqajFAA"
 
 KOLOM = [
     "NAMA", "NO WA", "ALAMAT", "PAKET", "HARGA",
-    "JATUH TEMPO", "STATUS", "TANGGAL BAYAR", "CATATAN"
+    "JATUH TEMPO", "STATUS", "TANGGAL BAYAR",
+    "STATUS AKUN", "NO INVOICE", "PERIODE",
+    "METODE BAYAR", "CATATAN"
 ]
 
 def tanggal_wib():
     return (datetime.utcnow() + timedelta(hours=7)).date()
+
+def bulan_tahun():
+    return tanggal_wib().strftime("%B %Y")
 
 def koneksi_sheet():
     scope = [
@@ -47,6 +56,8 @@ def load_data():
     df["JATUH TEMPO"] = pd.to_numeric(df["JATUH TEMPO"], errors="coerce").fillna(1).astype(int)
     df["NO WA"] = df["NO WA"].astype(str)
     df["STATUS"] = df["STATUS"].replace("", "Belum Bayar").fillna("Belum Bayar")
+    df["STATUS AKUN"] = df["STATUS AKUN"].replace("", "Aktif").fillna("Aktif")
+    df["PERIODE"] = df["PERIODE"].replace("", bulan_tahun()).fillna(bulan_tahun())
 
     return df[KOLOM]
 
@@ -66,11 +77,34 @@ def rapikan_wa(no):
         no = "62" + no[1:]
     return no
 
+def buat_invoice_no(row):
+    wa = str(row["NO WA"])[-4:]
+    return f"JNET-{datetime.now().strftime('%Y%m')}-{wa}"
+
+def get_secret(name):
+    try:
+        return st.secrets[name]
+    except:
+        return ""
+
+FONNTE_TOKEN = get_secret("FONNTE_TOKEN")
+
+def kirim_fonnte(token, target, pesan):
+    return requests.post(
+        "https://api.fonnte.com/send",
+        headers={"Authorization": token},
+        data={"target": target, "message": pesan, "countryCode": "62"},
+        timeout=30
+    )
+
 def pesan_invoice(row):
+    no_invoice = row["NO INVOICE"] if row["NO INVOICE"] else buat_invoice_no(row)
     return f"""Assalamualaikum Bapak/Ibu {row['NAMA']}
 
 Kami informasikan bahwa tagihan internet JASUND.NET untuk bulan ini telah terbit.
 
+No Invoice : {no_invoice}
+Periode : {row['PERIODE']}
 Paket Internet : {row['PAKET']}
 Tagihan : {rupiah(row['HARGA'])}
 Jatuh Tempo : Besok tanggal {int(row['JATUH TEMPO'])}
@@ -98,30 +132,33 @@ Abaikan pesan ini apabila Bapak/Ibu telah melakukan pembayaran sebelumnya.
 Terima kasih atas kepercayaan Bapak/Ibu menggunakan layanan internet JASUND.NET.
 
 Hormat kami,
+Admin JASUND.NET
+"""
+
+def pesan_lunas(row):
+    return f"""Assalamualaikum Bapak/Ibu {row['NAMA']}
+
+Terima kasih.
+
+Pembayaran internet JASUND.NET telah kami terima.
+
+No Invoice : {row['NO INVOICE']}
+Periode : {row['PERIODE']}
+Paket : {row['PAKET']}
+Nominal : {rupiah(row['HARGA'])}
+Status : LUNAS ✅
+
+Semoga layanan internet JASUND.NET tetap lancar dan bermanfaat.
 
 Admin JASUND.NET
 """
 
-def tombol_wa(no, pesan):
+def tombol_wa(no, pesan, teks="💬 Kirim Manual WhatsApp"):
     link = "https://wa.me/" + no + "?text=" + urllib.parse.quote(pesan)
     st.markdown(
-        f'<a href="{link}" target="_blank" class="wa-button">💬 Kirim Manual WhatsApp</a>',
+        f'<a href="{link}" target="_blank" class="wa-button">{teks}</a>',
         unsafe_allow_html=True
     )
-
-def kirim_fonnte(token, target, pesan):
-    return requests.post(
-        "https://api.fonnte.com/send",
-        headers={"Authorization": token},
-        data={"target": target, "message": pesan, "countryCode": "62"},
-        timeout=30
-    )
-
-def get_secret(name):
-    try:
-        return st.secrets[name]
-    except:
-        return ""
 
 def clean_text(text):
     return str(text).encode("latin-1", "replace").decode("latin-1")
@@ -131,108 +168,97 @@ def buat_pdf(row):
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
 
-    # HEADER
-    pdf.set_fill_color(35, 83, 145)
+    no_invoice = row["NO INVOICE"] if row["NO INVOICE"] else buat_invoice_no(row)
+
+    pdf.set_fill_color(24, 78, 138)
     pdf.rect(0, 0, 210, 28, "F")
 
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Helvetica", "B", 20)
-    pdf.cell(0, 10, "JASUND.NET", ln=True, align="L")
+    pdf.cell(0, 10, "JASUND.NET", ln=True)
 
     pdf.set_font("Helvetica", "", 10)
     pdf.cell(0, 6, "Internet Service Provider & RTRW NET Billing", ln=True)
 
-    pdf.set_xy(140, 8)
+    pdf.set_xy(138, 8)
     pdf.set_font("Helvetica", "B", 18)
-    pdf.cell(55, 10, "INVOICE", align="R")
+    pdf.cell(58, 10, "INVOICE", align="R")
 
-    pdf.ln(20)
     pdf.set_text_color(0, 0, 0)
+    pdf.ln(20)
 
-    invoice_no = f"INV-{datetime.now().strftime('%Y%m%d')}-{str(row['NO WA'])[-4:]}"
-    tanggal_invoice = tanggal_wib()
-
-    # BILL TO
     pdf.set_font("Helvetica", "B", 11)
     pdf.set_fill_color(58, 95, 160)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(85, 8, " BILL TO", border=1, fill=True)
+    pdf.cell(90, 8, " BILL TO", border=1, fill=True)
 
-    pdf.set_xy(125, 38)
-    pdf.cell(70, 8, " DETAIL INVOICE", border=1, fill=True)
+    pdf.set_xy(122, 38)
+    pdf.cell(74, 8, " DETAIL INVOICE", border=1, fill=True)
 
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Helvetica", "", 10)
 
-    y = 46
-    pdf.set_xy(10, y)
-    pdf.multi_cell(85, 7, clean_text(
-        f"{row['NAMA']}\n"
-        f"{row['ALAMAT']}\n"
-        f"WA: {row['NO WA']}"
-    ), border=1)
+    pdf.set_xy(10, 46)
+    pdf.multi_cell(
+        90, 7,
+        clean_text(f"{row['NAMA']}\n{row['ALAMAT']}\nWA: {row['NO WA']}"),
+        border=1
+    )
 
-    pdf.set_xy(125, y)
-    pdf.cell(35, 7, "Tanggal", border=1)
-    pdf.cell(35, 7, str(tanggal_invoice), border=1, ln=True)
+    pdf.set_xy(122, 46)
+    details = [
+        ("Tanggal", str(tanggal_wib())),
+        ("Invoice No", no_invoice),
+        ("Periode", str(row["PERIODE"])),
+        ("Jatuh Tempo", f"Tanggal {int(row['JATUH TEMPO'])}"),
+        ("Status", str(row["STATUS"])),
+    ]
 
-    pdf.set_x(125)
-    pdf.cell(35, 7, "Invoice No", border=1)
-    pdf.cell(35, 7, invoice_no, border=1, ln=True)
+    for k, v in details:
+        pdf.set_x(122)
+        pdf.cell(34, 7, k, border=1)
+        pdf.cell(40, 7, clean_text(v), border=1, ln=True)
 
-    pdf.set_x(125)
-    pdf.cell(35, 7, "Jatuh Tempo", border=1)
-    pdf.cell(35, 7, f"Tanggal {int(row['JATUH TEMPO'])}", border=1, ln=True)
+    pdf.ln(12)
 
-    pdf.set_x(125)
-    pdf.cell(35, 7, "Status", border=1)
-    pdf.cell(35, 7, clean_text(row["STATUS"]), border=1, ln=True)
-
-    pdf.ln(18)
-
-    # TABLE
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_fill_color(58, 95, 160)
     pdf.set_text_color(255, 255, 255)
-
-    pdf.cell(100, 8, " DESCRIPTION", border=1, fill=True)
+    pdf.cell(105, 8, " DESCRIPTION", border=1, fill=True)
     pdf.cell(25, 8, " QTY", border=1, fill=True, align="C")
-    pdf.cell(60, 8, " AMOUNT", border=1, fill=True, align="C")
+    pdf.cell(55, 8, " AMOUNT", border=1, fill=True, align="C")
     pdf.ln()
 
-    pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(0, 0, 0)
-
+    pdf.set_font("Helvetica", "", 10)
     desc = f"Tagihan Internet JASUND.NET\nPaket {row['PAKET']}"
-    pdf.multi_cell(100, 10, clean_text(desc), border=1)
+    y_start = pdf.get_y()
+    pdf.multi_cell(105, 10, clean_text(desc), border=1)
 
     y_after = pdf.get_y()
-    pdf.set_xy(110, y_after - 20)
+    pdf.set_xy(115, y_start)
     pdf.cell(25, 20, "1", border=1, align="C")
-
-    pdf.set_xy(135, y_after - 20)
-    pdf.cell(60, 20, rupiah(row["HARGA"]), border=1, align="R")
-
-    pdf.ln(5)
-
-    # TOTAL
-    pdf.set_x(110)
-    pdf.set_font("Helvetica", "", 10)
-    pdf.cell(35, 7, "Subtotal", border=0)
-    pdf.cell(50, 7, rupiah(row["HARGA"]), border=0, align="R", ln=True)
-
-    pdf.set_x(110)
-    pdf.cell(35, 7, "Discount", border=0)
-    pdf.cell(50, 7, "-", border=0, align="R", ln=True)
-
-    pdf.set_x(110)
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(35, 8, "Grand Total", border="T")
-    pdf.cell(50, 8, rupiah(row["HARGA"]), border="T", align="R", ln=True)
+    pdf.set_xy(140, y_start)
+    pdf.cell(55, 20, rupiah(row["HARGA"]), border=1, align="R")
 
     pdf.ln(8)
 
-    # PAYMENT INFO
+    pdf.set_x(115)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(35, 7, "Subtotal")
+    pdf.cell(45, 7, rupiah(row["HARGA"]), align="R", ln=True)
+
+    pdf.set_x(115)
+    pdf.cell(35, 7, "Discount")
+    pdf.cell(45, 7, "-", align="R", ln=True)
+
+    pdf.set_x(115)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(35, 8, "Grand Total", border="T")
+    pdf.cell(45, 8, rupiah(row["HARGA"]), border="T", align="R", ln=True)
+
+    pdf.ln(8)
+
     pdf.set_font("Helvetica", "B", 11)
     pdf.set_fill_color(58, 95, 160)
     pdf.set_text_color(255, 255, 255)
@@ -240,41 +266,42 @@ def buat_pdf(row):
 
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Helvetica", "", 10)
-    pdf.multi_cell(95, 7, clean_text(
-        "BCA  : 1831149782\n"
-        "a.n. Aceng Abdul Roup\n\n"
-        "BRI  : 4062 0103 3487 530\n"
-        "a.n. Aceng Abdul Roup\n\n"
-        "DANA : 081395440454\n"
-        "a.n. Aceng Abdul Roup"
-    ), border=1)
+    pdf.multi_cell(
+        95, 7,
+        clean_text(
+            "BCA  : 1831149782\n"
+            "a.n. Aceng Abdul Roup\n\n"
+            "BRI  : 4062 0103 3487 530\n"
+            "a.n. Aceng Abdul Roup\n\n"
+            "DANA : 081395440454\n"
+            "a.n. Aceng Abdul Roup"
+        ),
+        border=1
+    )
 
-    pdf.ln(6)
-
-    # COMMENT
+    pdf.ln(7)
     pdf.set_font("Helvetica", "B", 10)
     pdf.cell(0, 7, "CATATAN:", ln=True)
     pdf.set_font("Helvetica", "", 10)
-    pdf.multi_cell(0, 7, clean_text(
-        "Mohon kirimkan bukti transfer kepada admin JASUND.NET.\n"
-        "Pembayaran juga dapat dilakukan langsung ke kantor JASUND.NET.\n"
-        "Abaikan invoice ini apabila sudah melakukan pembayaran sebelumnya."
-    ))
+    pdf.multi_cell(
+        0, 7,
+        clean_text(
+            "Mohon kirimkan bukti transfer kepada admin JASUND.NET.\n"
+            "Pembayaran juga dapat dilakukan langsung ke kantor JASUND.NET.\n"
+            "Abaikan invoice ini apabila sudah melakukan pembayaran sebelumnya."
+        )
+    )
 
     pdf.ln(12)
-
-    # SIGNATURE
     pdf.set_x(125)
-    pdf.set_font("Helvetica", "", 10)
     pdf.cell(70, 7, "Hormat kami,", ln=True, align="C")
     pdf.ln(18)
     pdf.set_x(125)
     pdf.set_font("Helvetica", "B", 11)
     pdf.cell(70, 7, "Admin JASUND.NET", ln=True, align="C")
 
-    # FOOTER
     pdf.set_y(-22)
-    pdf.set_fill_color(35, 83, 145)
+    pdf.set_fill_color(24, 78, 138)
     pdf.rect(0, 282, 210, 12, "F")
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Helvetica", "", 9)
@@ -282,8 +309,7 @@ def buat_pdf(row):
 
     return bytes(pdf.output(dest="S"))
 
-FONNTE_TOKEN = get_secret("FONNTE_TOKEN")
-
+# DATA
 df = load_data()
 hari_ini = tanggal_wib()
 besok = hari_ini + timedelta(days=1)
@@ -291,12 +317,18 @@ besok = hari_ini + timedelta(days=1)
 total = len(df)
 belum = len(df[df["STATUS"] == "Belum Bayar"]) if total else 0
 lunas = len(df[df["STATUS"] == "Lunas"]) if total else 0
+menunggu = len(df[df["STATUS"] == "Menunggu Verifikasi"]) if total else 0
+aktif = len(df[df["STATUS AKUN"] == "Aktif"]) if total else 0
+suspend = len(df[df["STATUS AKUN"] == "Suspend"]) if total else 0
+menunggak = len(df[df["STATUS AKUN"] == "Menunggak"]) if total else 0
 h1 = len(df[(df["JATUH TEMPO"] == besok.day) & (df["STATUS"] == "Belum Bayar")]) if total else 0
+hari_ini_jt = len(df[(df["JATUH TEMPO"] == hari_ini.day) & (df["STATUS"] == "Belum Bayar")]) if total else 0
 total_tagihan = df["HARGA"].sum() if total else 0
 sudah_lunas = df[df["STATUS"] == "Lunas"]["HARGA"].sum() if total else 0
 belum_masuk = df[df["STATUS"] != "Lunas"]["HARGA"].sum() if total else 0
 persen_lunas = round((lunas / total) * 100) if total else 0
 
+# STYLE
 st.markdown("""
 <style>
 .stApp {
@@ -336,6 +368,7 @@ h1,h2,h3,h4,p,label {color:#f8fafc !important;}
 .purple{background:linear-gradient(135deg,#7c3aed,#c084fc);}
 .orange{background:linear-gradient(135deg,#ea580c,#facc15);}
 .red{background:linear-gradient(135deg,#dc2626,#fb7185);}
+.dark{background:linear-gradient(135deg,#334155,#0f172a);}
 .metric-label{font-size:15px;font-weight:700;}
 .metric-value{font-size:34px;font-weight:900;margin-top:8px;}
 .wa-button {
@@ -373,22 +406,22 @@ h1,h2,h3,h4,p,label {color:#f8fafc !important;}
 """, unsafe_allow_html=True)
 
 st.sidebar.title("📡 JASUND.NET")
-st.sidebar.caption("ISP Billing Premium V8")
+st.sidebar.caption("ISP Billing V9 Pro Max")
 
 menu = st.sidebar.radio("Menu", [
-    "🏠 Dashboard",
+    "🏠 Dashboard CEO",
     "➕ Tambah Pelanggan",
     "👥 Data Pelanggan",
     "✏️ Edit / Hapus",
     "📨 Invoice H-1",
-    "💰 Pembayaran",
+    "💳 Pembayaran Masuk",
     "📄 Invoice PDF",
     "📊 Rekap",
     "⚙️ Status Sistem"
 ])
 
-st.markdown('<div class="main-title">📡 JASUND.NET ISP BILLING V8</div>', unsafe_allow_html=True)
-st.write("Google Sheets Database • Auto Billing H-1 • WhatsApp Fonnte • Invoice PDF")
+st.markdown('<div class="main-title">📡 JASUND.NET ISP BILLING V9 PRO MAX</div>', unsafe_allow_html=True)
+st.write("Dashboard CEO • Google Sheets • Auto Billing H-1 • Invoice Pro • Pembayaran Lunas")
 
 st.markdown(f"""
 <div class="running">
@@ -398,19 +431,20 @@ st.markdown(f"""
 
 st.write("")
 
-if menu == "🏠 Dashboard":
+if menu == "🏠 Dashboard CEO":
     c1, c2, c3, c4 = st.columns(4)
     cards = [
         ("👥 Total Pelanggan", total, "green"),
-        ("⏳ Belum Bayar", belum, "red"),
-        ("✅ Lunas", lunas, "blue"),
-        ("📨 H-1 Besok", h1, "orange"),
+        ("🟢 Aktif", aktif, "blue"),
+        ("⚠️ Menunggak", menunggak, "orange"),
+        ("⛔ Suspend", suspend, "red"),
     ]
     for col, (label, val, warna) in zip([c1,c2,c3,c4], cards):
         with col:
             st.markdown(f'<div class="card {warna}"><div class="metric-label">{label}</div><div class="metric-value">{val}</div></div>', unsafe_allow_html=True)
 
     st.write("")
+
     c5, c6, c7, c8 = st.columns(4)
     cards2 = [
         ("💵 Total Tagihan", rupiah(total_tagihan), "purple"),
@@ -419,6 +453,19 @@ if menu == "🏠 Dashboard":
         ("📊 Lunas", f"{persen_lunas}%", "blue"),
     ]
     for col, (label, val, warna) in zip([c5,c6,c7,c8], cards2):
+        with col:
+            st.markdown(f'<div class="card {warna}"><div class="metric-label">{label}</div><div class="metric-value">{val}</div></div>', unsafe_allow_html=True)
+
+    st.write("")
+
+    c9, c10, c11, c12 = st.columns(4)
+    cards3 = [
+        ("📨 H-1 Besok", h1, "orange"),
+        ("📅 Jatuh Tempo Hari Ini", hari_ini_jt, "purple"),
+        ("⏳ Belum Bayar", belum, "red"),
+        ("🧾 Menunggu Verifikasi", menunggu, "dark"),
+    ]
+    for col, (label, val, warna) in zip([c9,c10,c11,c12], cards3):
         with col:
             st.markdown(f'<div class="card {warna}"><div class="metric-label">{label}</div><div class="metric-value">{val}</div></div>', unsafe_allow_html=True)
 
@@ -466,11 +513,15 @@ elif menu == "➕ Tambah Pelanggan":
                 "JATUH TEMPO": int(jatuh),
                 "STATUS": "Belum Bayar",
                 "TANGGAL BAYAR": "",
+                "STATUS AKUN": "Aktif",
+                "NO INVOICE": "",
+                "PERIODE": bulan_tahun(),
+                "METODE BAYAR": "",
                 "CATATAN": catatan
             }])
             df = pd.concat([df, baru], ignore_index=True)
             save_data(df)
-            st.success("Pelanggan berhasil ditambahkan ke Google Sheets.")
+            st.success("Pelanggan berhasil ditambahkan.")
             st.rerun()
 
 elif menu == "👥 Data Pelanggan":
@@ -500,7 +551,9 @@ elif menu == "✏️ Edit / Hapus":
         paket = st.selectbox("Paket", paket_list, index=paket_index)
         harga = st.number_input("Harga", min_value=0, value=int(df.loc[idx, "HARGA"]), step=10000)
         jatuh = st.number_input("Jatuh Tempo", min_value=1, max_value=31, value=int(df.loc[idx, "JATUH TEMPO"]))
-        status = st.selectbox("Status", ["Belum Bayar", "Lunas", "Menunggu Verifikasi"], index=0)
+        status = st.selectbox("Status Bayar", ["Belum Bayar", "Menunggu Verifikasi", "Lunas"], index=0)
+        status_akun = st.selectbox("Status Akun", ["Aktif", "Menunggak", "Suspend"], index=0)
+        periode = st.text_input("Periode", value=str(df.loc[idx, "PERIODE"]))
         catatan = st.text_area("Catatan", value=str(df.loc[idx, "CATATAN"]))
 
         col1, col2 = st.columns(2)
@@ -514,9 +567,13 @@ elif menu == "✏️ Edit / Hapus":
                 df.at[idx, "HARGA"] = int(harga)
                 df.at[idx, "JATUH TEMPO"] = int(jatuh)
                 df.at[idx, "STATUS"] = status
+                df.at[idx, "STATUS AKUN"] = status_akun
+                df.at[idx, "PERIODE"] = periode
                 df.at[idx, "CATATAN"] = catatan
                 if status == "Lunas":
                     df.at[idx, "TANGGAL BAYAR"] = str(hari_ini)
+                    if not df.at[idx, "NO INVOICE"]:
+                        df.at[idx, "NO INVOICE"] = buat_invoice_no(df.loc[idx])
                 save_data(df)
                 st.success("Data berhasil diupdate.")
                 st.rerun()
@@ -550,7 +607,7 @@ elif menu == "📨 Invoice H-1":
             st.write("No WA:", no)
             st.write("Paket:", row["PAKET"])
             st.write("Tagihan:", rupiah(row["HARGA"]))
-            st.text_area("Preview Invoice", pesan, height=260, key=f"preview_{i}")
+            st.text_area("Preview Invoice", pesan, height=280, key=f"preview_{i}")
 
             tombol_wa(no, pesan)
 
@@ -562,8 +619,8 @@ elif menu == "📨 Invoice H-1":
                     else:
                         st.error(hasil.text)
 
-elif menu == "💰 Pembayaran":
-    st.subheader("💰 Update Pembayaran")
+elif menu == "💳 Pembayaran Masuk":
+    st.subheader("💳 Pembayaran Masuk")
 
     if total == 0:
         st.warning("Belum ada pelanggan.")
@@ -571,21 +628,37 @@ elif menu == "💰 Pembayaran":
         pilih = st.selectbox("Pilih Pelanggan", df["NAMA"].astype(str).tolist())
         idx = df[df["NAMA"].astype(str) == pilih].index[0]
 
-        st.write("Paket:", df.loc[idx, "PAKET"])
-        st.write("Tagihan:", rupiah(df.loc[idx, "HARGA"]))
-        st.write("Status Sekarang:", df.loc[idx, "STATUS"])
+        row = df.loc[idx]
+        st.write("Tagihan:", rupiah(row["HARGA"]))
+        st.write("Status Sekarang:", row["STATUS"])
 
-        bukti = st.file_uploader("Upload Bukti Transfer (opsional)", type=["jpg", "jpeg", "png", "pdf"])
-        status_baru = st.selectbox("Status Baru", ["Belum Bayar", "Menunggu Verifikasi", "Lunas"])
+        metode = st.selectbox("Metode Bayar", ["BCA", "BRI", "DANA", "Tunai", "Lainnya"])
+        catatan = st.text_area("Catatan Pembayaran", value=str(row["CATATAN"]))
 
-        if st.button("💾 SIMPAN PEMBAYARAN"):
-            df.at[idx, "STATUS"] = status_baru
-            if status_baru == "Lunas":
-                df.at[idx, "TANGGAL BAYAR"] = str(hari_ini)
-            if bukti:
-                df.at[idx, "CATATAN"] = f"Bukti transfer diterima: {bukti.name}"
+        if st.button("✅ KONFIRMASI LUNAS"):
+            if not df.at[idx, "NO INVOICE"]:
+                df.at[idx, "NO INVOICE"] = buat_invoice_no(df.loc[idx])
+
+            df.at[idx, "STATUS"] = "Lunas"
+            df.at[idx, "STATUS AKUN"] = "Aktif"
+            df.at[idx, "TANGGAL BAYAR"] = str(hari_ini)
+            df.at[idx, "METODE BAYAR"] = metode
+            df.at[idx, "CATATAN"] = catatan
+
             save_data(df)
-            st.success("Status pembayaran berhasil diperbarui.")
+
+            no = rapikan_wa(df.loc[idx, "NO WA"])
+            pesan = pesan_lunas(df.loc[idx])
+
+            if FONNTE_TOKEN:
+                try:
+                    kirim_fonnte(FONNTE_TOKEN, no, pesan)
+                    st.success("Status lunas disimpan dan WA konfirmasi terkirim.")
+                except:
+                    st.success("Status lunas disimpan. WA konfirmasi gagal dikirim.")
+            else:
+                tombol_wa(no, pesan, "💬 Kirim WA Konfirmasi Lunas")
+
             st.rerun()
 
 elif menu == "📄 Invoice PDF":
@@ -620,6 +693,13 @@ elif menu == "📊 Rekap":
     c4.metric("Persentase Lunas", f"{persen_lunas}%")
     st.dataframe(df, use_container_width=True)
 
+    st.download_button(
+        "⬇️ Export CSV",
+        data=df.to_csv(index=False).encode("utf-8"),
+        file_name="rekap_jasund_net.csv",
+        mime="text/csv"
+    )
+
 elif menu == "⚙️ Status Sistem":
     st.subheader("⚙️ Status Sistem")
     st.markdown(f"""
@@ -629,6 +709,7 @@ elif menu == "⚙️ Status Sistem":
     ✅ Auto Billing: H-1 saja<br>
     ✅ WhatsApp API: Fonnte<br>
     ✅ Invoice PDF: Aktif<br>
-    ✅ Versi: JASUND.NET V8 ISP PREMIUM PRO
+    ✅ Konfirmasi Lunas: Aktif<br>
+    ✅ Versi: JASUND.NET V9 ISP PREMIUM PRO MAX
     </div>
     """, unsafe_allow_html=True)
