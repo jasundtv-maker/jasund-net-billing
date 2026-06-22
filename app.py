@@ -7,7 +7,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 st.set_page_config(
-    page_title="JASUND.NET V5 GOOGLE SHEETS",
+    page_title="JASUND.NET V6 ISP PREMIUM",
     page_icon="📡",
     layout="wide"
 )
@@ -95,6 +95,16 @@ def kirim_telegram(token, chat_id, pesan):
         timeout=30
     )
 
+def get_secret(name):
+    try:
+        return st.secrets[name]
+    except:
+        return ""
+
+FONNTE_TOKEN = get_secret("FONNTE_TOKEN")
+TELEGRAM_BOT_TOKEN = get_secret("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = get_secret("TELEGRAM_CHAT_ID")
+
 df = load_data()
 hari_ini = tanggal_wib()
 besok = hari_ini + timedelta(days=1)
@@ -146,28 +156,31 @@ h1,h2,h3,h4,p,label {color:#f8fafc !important;}
 .card-red{background:linear-gradient(135deg,#dc2626,#fb7185);}
 .metric-label{font-size:15px;font-weight:600;}
 .metric-value{font-size:34px;font-weight:900;margin-top:8px;}
+.clean-box{
+    padding:18px;
+    border-radius:18px;
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.15);
+}
 </style>
 """, unsafe_allow_html=True)
 
 st.sidebar.title("📡 JASUND.NET")
-st.sidebar.caption("V5 Google Sheets")
-
-fonnte_token = st.sidebar.text_input("Token Fonnte", type="password")
-telegram_token = st.sidebar.text_input("Token Bot Telegram", type="password")
-telegram_chat_id = st.sidebar.text_input("Chat ID Telegram", type="password")
+st.sidebar.caption("ISP Billing Premium V6")
 
 menu = st.sidebar.radio("Menu", [
-    "🏠 Dashboard V5",
+    "🏠 Dashboard",
     "➕ Tambah Pelanggan",
     "👥 Data Pelanggan",
     "✏️ Edit / Hapus",
     "📨 Invoice H-1",
     "💰 Pembayaran",
-    "📊 Rekap"
+    "📊 Rekap",
+    "⚙️ Status Sistem"
 ])
 
-st.markdown('<div class="main-title">📡 JASUND.NET BILLING V5</div>', unsafe_allow_html=True)
-st.write("Database sudah memakai Google Sheets otomatis")
+st.markdown('<div class="main-title">📡 JASUND.NET ISP BILLING V6</div>', unsafe_allow_html=True)
+st.write("Database Google Sheets • Auto Billing • Dashboard Premium")
 
 st.markdown(f"""
 <div class="running">
@@ -180,7 +193,7 @@ st.markdown(f"""
 
 st.write("")
 
-if menu == "🏠 Dashboard V5":
+if menu == "🏠 Dashboard":
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
@@ -193,8 +206,8 @@ if menu == "🏠 Dashboard V5":
         st.markdown(f'<div class="card-orange"><div class="metric-label">📨 H-1 Besok</div><div class="metric-value">{h1}</div></div>', unsafe_allow_html=True)
 
     st.write("")
-    c5, c6, c7 = st.columns(3)
 
+    c5, c6, c7 = st.columns(3)
     with c5:
         st.markdown(f'<div class="card-purple"><div class="metric-label">💵 Total Tagihan</div><div class="metric-value">{rupiah(total_tagihan)}</div></div>', unsafe_allow_html=True)
     with c6:
@@ -204,11 +217,31 @@ if menu == "🏠 Dashboard V5":
 
     st.write("")
     st.subheader("📨 Pelanggan Jatuh Tempo Besok")
+
     calon = df[(df["JATUH TEMPO"] == besok.day) & (df["STATUS"] == "Belum Bayar")]
     if len(calon) == 0:
         st.success("Tidak ada pelanggan H-1 besok.")
     else:
         st.dataframe(calon, use_container_width=True)
+
+    st.write("")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("📶 Sebaran Paket")
+        if total:
+            paket_df = df["PAKET"].value_counts()
+            st.bar_chart(paket_df)
+        else:
+            st.info("Belum ada data.")
+
+    with col2:
+        st.subheader("💰 Status Pembayaran")
+        if total:
+            status_df = df["STATUS"].value_counts()
+            st.bar_chart(status_df)
+        else:
+            st.info("Belum ada data.")
 
 elif menu == "➕ Tambah Pelanggan":
     st.subheader("➕ Tambah Pelanggan Baru")
@@ -292,7 +325,7 @@ elif menu == "✏️ Edit / Hapus":
                 df.at[idx, "JATUH TEMPO"] = int(jatuh)
                 df.at[idx, "STATUS"] = status
                 save_data(df)
-                st.success("Data berhasil diupdate ke Google Sheets.")
+                st.success("Data berhasil diupdate.")
                 st.rerun()
 
         with c2:
@@ -301,7 +334,7 @@ elif menu == "✏️ Edit / Hapus":
                 if yakin:
                     df = df.drop(idx).reset_index(drop=True)
                     save_data(df)
-                    st.success("Pelanggan berhasil dihapus dari Google Sheets.")
+                    st.success("Pelanggan berhasil dihapus.")
                     st.rerun()
                 else:
                     st.warning("Centang konfirmasi dulu.")
@@ -332,35 +365,21 @@ elif menu == "📨 Invoice H-1":
             link = "https://wa.me/" + no + "?text=" + urllib.parse.quote(pesan)
             st.link_button("Kirim Manual WhatsApp", link)
 
-            if fonnte_token:
+            if FONNTE_TOKEN:
                 if st.button(f"🚀 Kirim Fonnte ke {row['NAMA']}", key=f"fonnte_{i}"):
-                    hasil = kirim_fonnte(fonnte_token, no, pesan)
+                    hasil = kirim_fonnte(FONNTE_TOKEN, no, pesan)
                     if hasil.status_code == 200:
                         st.success("Invoice berhasil dikirim.")
                     else:
                         st.error(hasil.text)
-
-        if st.button("🚀 Kirim Semua Invoice H-1 via Fonnte"):
-            if not fonnte_token:
-                st.error("Token Fonnte belum diisi.")
             else:
-                sukses, gagal = 0, 0
-                for _, row in calon.iterrows():
-                    try:
-                        h = kirim_fonnte(fonnte_token, rapikan_wa(row["NO WA"]), pesan_invoice(row))
-                        if h.status_code == 200:
-                            sukses += 1
-                        else:
-                            gagal += 1
-                    except:
-                        gagal += 1
-                st.success(f"Selesai. Berhasil: {sukses}, Gagal: {gagal}")
+                st.info("Token Fonnte disimpan di GitHub Actions. Pengiriman otomatis tetap berjalan harian.")
 
         if st.button("🔔 Kirim Laporan Telegram"):
-            if not telegram_token or not telegram_chat_id:
-                st.error("Token Telegram / Chat ID belum diisi.")
+            if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+                st.info("Telegram manual belum aktif di Streamlit Secrets. Auto Telegram tetap berjalan lewat GitHub Actions.")
             else:
-                h = kirim_telegram(telegram_token, telegram_chat_id, laporan)
+                h = kirim_telegram(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, laporan)
                 if h.status_code == 200:
                     st.success("Laporan Telegram terkirim.")
                 else:
@@ -384,7 +403,7 @@ elif menu == "💰 Pembayaran":
         if st.button("💾 Simpan Status"):
             df.at[idx, "STATUS"] = status_baru
             save_data(df)
-            st.success("Status pembayaran berhasil diperbarui di Google Sheets.")
+            st.success("Status pembayaran berhasil diperbarui.")
             st.rerun()
 
 elif menu == "📊 Rekap":
@@ -396,3 +415,18 @@ elif menu == "📊 Rekap":
     c3.metric("Belum Masuk", rupiah(belum_masuk))
 
     st.dataframe(df, use_container_width=True)
+
+elif menu == "⚙️ Status Sistem":
+    st.subheader("⚙️ Status Sistem")
+
+    st.markdown(f"""
+    <div class="clean-box">
+    ✅ Database: Google Sheets<br>
+    ✅ Hari ini WIB: {hari_ini}<br>
+    ✅ Auto Billing: GitHub Actions jam 08:00 WIB<br>
+    ✅ WhatsApp API: Fonnte via GitHub Secrets<br>
+    ✅ Telegram Report: via GitHub Secrets<br>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.info("Token sudah tidak ditampilkan di sidebar agar tampilan lebih bersih dan aman.")
