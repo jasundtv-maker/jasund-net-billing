@@ -9,7 +9,7 @@ from fpdf import FPDF
 from io import BytesIO
 
 st.set_page_config(
-    page_title="JASUND.NET V11 SUPER ISP",
+    page_title="JASUND.NET V12 ENTERPRISE",
     page_icon="📡",
     layout="wide"
 )
@@ -24,7 +24,7 @@ KOLOM = [
 ]
 
 # =========================
-# UTILITAS WAKTU
+# WAKTU
 # =========================
 def tanggal_wib():
     return (datetime.utcnow() + timedelta(hours=7)).date()
@@ -89,6 +89,9 @@ def load_data():
 
     df["PERIODE"] = df["PERIODE"].replace("", bulan_tahun()).fillna(bulan_tahun())
     df["CATATAN"] = df["CATATAN"].fillna("")
+    df["TANGGAL BAYAR"] = df["TANGGAL BAYAR"].fillna("")
+    df["METODE BAYAR"] = df["METODE BAYAR"].fillna("")
+    df["NO INVOICE"] = df["NO INVOICE"].fillna("")
 
     return df[KOLOM]
 
@@ -100,7 +103,7 @@ def save_data(df):
     sheet.update(data)
 
 # =========================
-# FORMAT & API
+# FORMAT
 # =========================
 def rupiah(x):
     return f"Rp {int(x):,}".replace(",", ".")
@@ -141,7 +144,7 @@ def kirim_telegram(token, chat_id, pesan):
     )
 
 # =========================
-# PESAN WA
+# PESAN
 # =========================
 def pesan_invoice(row):
     no_invoice = row["NO INVOICE"] if row["NO INVOICE"] else buat_invoice_no(row)
@@ -446,6 +449,14 @@ def portal_pelanggan(df, no_wa):
     hasil = df[df["NO WA"].astype(str).apply(rapikan_wa) == nomor]
     return hasil
 
+def status_badge(status):
+    status = str(status)
+    if status == "Lunas":
+        return "🟢 Lunas"
+    if status == "Menunggu Verifikasi":
+        return "🟡 Menunggu Verifikasi"
+    return "🔴 Belum Bayar"
+
 # =========================
 # DATA
 # =========================
@@ -467,6 +478,8 @@ total_tagihan = df["HARGA"].sum() if total else 0
 sudah_lunas = df[df["STATUS"] == "Lunas"]["HARGA"].sum() if total else 0
 belum_masuk = df[df["STATUS"] != "Lunas"]["HARGA"].sum() if total else 0
 persen_lunas = round((lunas / total) * 100) if total else 0
+arpu = round(total_tagihan / total) if total else 0
+estimasi_bulan_depan = total_tagihan
 
 # =========================
 # STYLE
@@ -552,7 +565,7 @@ h1,h2,h3,h4,p,label {color:#f8fafc !important;}
 # SIDEBAR
 # =========================
 st.sidebar.title("📡 JASUND.NET")
-st.sidebar.caption("V11 Super ISP Premium Max")
+st.sidebar.caption("V12 Enterprise H-1 Only")
 
 menu = st.sidebar.radio("Menu", [
     "🏠 Dashboard CEO",
@@ -571,8 +584,8 @@ menu = st.sidebar.radio("Menu", [
     "⚙️ Status Sistem"
 ])
 
-st.markdown('<div class="main-title">📡 JASUND.NET V11 SUPER ISP PREMIUM MAX</div>', unsafe_allow_html=True)
-st.write("Dashboard CEO • Portal Pelanggan • Laporan PDF • Teknisi • WA Blast • Google Sheets • Auto Billing H-1")
+st.markdown('<div class="main-title">📡 JASUND.NET V12 ENTERPRISE ISP</div>', unsafe_allow_html=True)
+st.write("Dashboard CEO • H-1 Only • Laporan PDF • Portal Pelanggan • Teknisi • Google Sheets")
 
 st.markdown(f"""
 <div class="running">
@@ -616,8 +629,8 @@ if menu == "🏠 Dashboard CEO":
     cards3 = [
         ("📨 H-1 Besok", h1, "orange"),
         ("📅 Jatuh Tempo Hari Ini", hari_ini_jt, "purple"),
-        ("⏳ Belum Bayar", belum, "red"),
-        ("🧾 Menunggu Verifikasi", menunggu, "dark"),
+        ("💎 ARPU", rupiah(arpu), "dark"),
+        ("📈 Estimasi Bulan Depan", rupiah(estimasi_bulan_depan), "green"),
     ]
     for col, (label, val, warna) in zip([c9,c10,c11,c12], cards3):
         with col:
@@ -701,6 +714,7 @@ elif menu == "👥 Data Pelanggan":
     cari = st.text_input("Cari pelanggan")
     tampil = df.copy()
     tampil["LABEL CATATAN"] = tampil["CATATAN"].apply(warna_catatan)
+    tampil["STATUS WARNA"] = tampil["STATUS"].apply(status_badge)
 
     if cari:
         tampil = tampil[tampil.astype(str).apply(lambda row: row.str.contains(cari, case=False).any(), axis=1)]
@@ -874,7 +888,7 @@ elif menu == "📄 Invoice PDF":
 
 elif menu == "📣 WA Blast":
     st.subheader("📣 WA Blast Pelanggan")
-    st.warning("Gunakan fitur ini secukupnya agar nomor WA tidak dianggap spam.")
+    st.warning("Gunakan fitur ini secukupnya agar nomor WA tidak dianggap spam. Auto billing tetap H-1 saja.")
 
     target = st.selectbox("Target", ["Semua Pelanggan", "Belum Bayar", "Lunas", "Aktif", "VIP", "Suspend"])
     pesan = st.text_area("Isi Pesan Broadcast", height=180)
@@ -943,7 +957,7 @@ elif menu == "📑 Laporan Bulanan PDF":
 
 elif menu == "🌐 Portal Pelanggan":
     st.subheader("🌐 Portal Pelanggan")
-    st.info("Pelanggan bisa dicek memakai nomor WhatsApp. Ini masih untuk admin, nanti V12 bisa dibuat halaman khusus pelanggan.")
+    st.info("Masukkan nomor WhatsApp pelanggan untuk melihat tagihan dan status.")
 
     no_cari = st.text_input("Masukkan nomor WA pelanggan")
     if no_cari:
@@ -953,13 +967,22 @@ elif menu == "🌐 Portal Pelanggan":
         else:
             row = hasil.iloc[0]
             st.success("Data pelanggan ditemukan.")
-            st.write("Nama:", row["NAMA"])
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Nama", row["NAMA"])
+            c2.metric("Paket", row["PAKET"])
+            c3.metric("Tagihan", rupiah(row["HARGA"]))
             st.write("Alamat:", row["ALAMAT"])
-            st.write("Paket:", row["PAKET"])
-            st.write("Tagihan:", rupiah(row["HARGA"]))
             st.write("Jatuh Tempo:", row["JATUH TEMPO"])
-            st.write("Status Bayar:", row["STATUS"])
+            st.write("Status Bayar:", status_badge(row["STATUS"]))
             st.write("Status Akun:", row["STATUS AKUN"])
+
+            pdf_bytes = buat_pdf(row)
+            st.download_button(
+                "⬇️ DOWNLOAD INVOICE PDF PELANGGAN",
+                data=pdf_bytes,
+                file_name=f"Invoice_JASUNDNET_{row['NAMA']}.pdf",
+                mime="application/pdf"
+            )
 
 elif menu == "🛠️ Dashboard Teknisi":
     st.subheader("🛠️ Dashboard Teknisi")
@@ -986,11 +1009,11 @@ elif menu == "⚙️ Status Sistem":
     ✅ Auto Billing: H-1 saja<br>
     ✅ WhatsApp API: Fonnte<br>
     ✅ Invoice PDF: Aktif<br>
-    ✅ WA Blast: Aktif<br>
+    ✅ WA Blast Manual: Aktif<br>
     ✅ Export Excel: Aktif<br>
     ✅ Laporan Bulanan PDF: Aktif<br>
     ✅ Portal Pelanggan: Aktif<br>
     ✅ Dashboard Teknisi: Aktif<br>
-    ✅ Versi: JASUND.NET V11 SUPER ISP PREMIUM MAX
+    ✅ Versi: JASUND.NET V12 ENTERPRISE ISP
     </div>
     """, unsafe_allow_html=True)
