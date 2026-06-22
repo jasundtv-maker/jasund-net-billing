@@ -123,33 +123,162 @@ def get_secret(name):
     except:
         return ""
 
+def clean_text(text):
+    return str(text).encode("latin-1", "replace").decode("latin-1")
+
 def buat_pdf(row):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", "B", 18)
-    pdf.cell(0, 10, "INVOICE JASUND.NET", ln=True, align="C")
+    pdf.set_auto_page_break(auto=True, margin=15)
 
-    pdf.set_font("Arial", "", 12)
+    # HEADER
+    pdf.set_fill_color(35, 83, 145)
+    pdf.rect(0, 0, 210, 28, "F")
+
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 20)
+    pdf.cell(0, 10, "JASUND.NET", ln=True, align="L")
+
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, "Internet Service Provider & RTRW NET Billing", ln=True)
+
+    pdf.set_xy(140, 8)
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(55, 10, "INVOICE", align="R")
+
+    pdf.ln(20)
+    pdf.set_text_color(0, 0, 0)
+
+    invoice_no = f"INV-{datetime.now().strftime('%Y%m%d')}-{str(row['NO WA'])[-4:]}"
+    tanggal_invoice = tanggal_wib()
+
+    # BILL TO
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_fill_color(58, 95, 160)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(85, 8, " BILL TO", border=1, fill=True)
+
+    pdf.set_xy(125, 38)
+    pdf.cell(70, 8, " DETAIL INVOICE", border=1, fill=True)
+
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Helvetica", "", 10)
+
+    y = 46
+    pdf.set_xy(10, y)
+    pdf.multi_cell(85, 7, clean_text(
+        f"{row['NAMA']}\n"
+        f"{row['ALAMAT']}\n"
+        f"WA: {row['NO WA']}"
+    ), border=1)
+
+    pdf.set_xy(125, y)
+    pdf.cell(35, 7, "Tanggal", border=1)
+    pdf.cell(35, 7, str(tanggal_invoice), border=1, ln=True)
+
+    pdf.set_x(125)
+    pdf.cell(35, 7, "Invoice No", border=1)
+    pdf.cell(35, 7, invoice_no, border=1, ln=True)
+
+    pdf.set_x(125)
+    pdf.cell(35, 7, "Jatuh Tempo", border=1)
+    pdf.cell(35, 7, f"Tanggal {int(row['JATUH TEMPO'])}", border=1, ln=True)
+
+    pdf.set_x(125)
+    pdf.cell(35, 7, "Status", border=1)
+    pdf.cell(35, 7, clean_text(row["STATUS"]), border=1, ln=True)
+
+    pdf.ln(18)
+
+    # TABLE
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_fill_color(58, 95, 160)
+    pdf.set_text_color(255, 255, 255)
+
+    pdf.cell(100, 8, " DESCRIPTION", border=1, fill=True)
+    pdf.cell(25, 8, " QTY", border=1, fill=True, align="C")
+    pdf.cell(60, 8, " AMOUNT", border=1, fill=True, align="C")
+    pdf.ln()
+
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(0, 0, 0)
+
+    desc = f"Tagihan Internet JASUND.NET\nPaket {row['PAKET']}"
+    pdf.multi_cell(100, 10, clean_text(desc), border=1)
+
+    y_after = pdf.get_y()
+    pdf.set_xy(110, y_after - 20)
+    pdf.cell(25, 20, "1", border=1, align="C")
+
+    pdf.set_xy(135, y_after - 20)
+    pdf.cell(60, 20, rupiah(row["HARGA"]), border=1, align="R")
+
+    pdf.ln(5)
+
+    # TOTAL
+    pdf.set_x(110)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(35, 7, "Subtotal", border=0)
+    pdf.cell(50, 7, rupiah(row["HARGA"]), border=0, align="R", ln=True)
+
+    pdf.set_x(110)
+    pdf.cell(35, 7, "Discount", border=0)
+    pdf.cell(50, 7, "-", border=0, align="R", ln=True)
+
+    pdf.set_x(110)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(35, 8, "Grand Total", border="T")
+    pdf.cell(50, 8, rupiah(row["HARGA"]), border="T", align="R", ln=True)
+
     pdf.ln(8)
-    pdf.cell(0, 8, f"Nama Pelanggan : {row['NAMA']}", ln=True)
-    pdf.cell(0, 8, f"No WhatsApp    : {row['NO WA']}", ln=True)
-    pdf.cell(0, 8, f"Alamat         : {row['ALAMAT']}", ln=True)
-    pdf.cell(0, 8, f"Paket Internet : {row['PAKET']}", ln=True)
-    pdf.cell(0, 8, f"Tagihan        : {rupiah(row['HARGA'])}", ln=True)
-    pdf.cell(0, 8, f"Jatuh Tempo    : Tanggal {int(row['JATUH TEMPO'])}", ln=True)
-    pdf.cell(0, 8, f"Status         : {row['STATUS']}", ln=True)
 
-    pdf.ln(8)
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 8, "Metode Pembayaran:", ln=True)
+    # PAYMENT INFO
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_fill_color(58, 95, 160)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(95, 8, " METODE PEMBAYARAN", border=1, fill=True, ln=True)
 
-    pdf.set_font("Arial", "", 12)
-    pdf.cell(0, 8, "BCA  : 1831149782 a.n. Aceng Abdul Roup", ln=True)
-    pdf.cell(0, 8, "BRI  : 4062 0103 3487 530 a.n. Aceng Abdul Roup", ln=True)
-    pdf.cell(0, 8, "DANA : 081395440454 a.n. Aceng Abdul Roup", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.multi_cell(95, 7, clean_text(
+        "BCA  : 1831149782\n"
+        "a.n. Aceng Abdul Roup\n\n"
+        "BRI  : 4062 0103 3487 530\n"
+        "a.n. Aceng Abdul Roup\n\n"
+        "DANA : 081395440454\n"
+        "a.n. Aceng Abdul Roup"
+    ), border=1)
 
-    pdf.ln(8)
-    pdf.multi_cell(0, 8, "Mohon kirimkan bukti transfer kepada admin JASUND.NET. Abaikan invoice ini apabila sudah melakukan pembayaran.")
+    pdf.ln(6)
+
+    # COMMENT
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(0, 7, "CATATAN:", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.multi_cell(0, 7, clean_text(
+        "Mohon kirimkan bukti transfer kepada admin JASUND.NET.\n"
+        "Pembayaran juga dapat dilakukan langsung ke kantor JASUND.NET.\n"
+        "Abaikan invoice ini apabila sudah melakukan pembayaran sebelumnya."
+    ))
+
+    pdf.ln(12)
+
+    # SIGNATURE
+    pdf.set_x(125)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(70, 7, "Hormat kami,", ln=True, align="C")
+    pdf.ln(18)
+    pdf.set_x(125)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(70, 7, "Admin JASUND.NET", ln=True, align="C")
+
+    # FOOTER
+    pdf.set_y(-22)
+    pdf.set_fill_color(35, 83, 145)
+    pdf.rect(0, 282, 210, 12, "F")
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(0, 8, "JASUND.NET - Internet Service Provider | Billing RTRW NET", align="C")
 
     return bytes(pdf.output(dest="S"))
 
