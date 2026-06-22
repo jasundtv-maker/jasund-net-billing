@@ -7,7 +7,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 st.set_page_config(
-    page_title="JASUND.NET V6 ISP PREMIUM",
+    page_title="JASUND.NET V7 ISP PREMIUM",
     page_icon="📡",
     layout="wide"
 )
@@ -66,19 +66,58 @@ def rapikan_wa(no):
     return no
 
 def pesan_invoice(row):
-    return f"""Assalamualaikum Bapak/Ibu {row['NAMA']}
+return f"""Assalamualaikum Bapak/Ibu {row['NAMA']}
 
-Kami informasikan tagihan internet JASUND.NET:
+Kami informasikan bahwa tagihan internet JASUND.NET untuk bulan ini telah terbit.
 
-Paket: {row['PAKET']}
-Tagihan: {rupiah(row['HARGA'])}
-Jatuh tempo: besok tanggal {int(row['JATUH TEMPO'])}
+📦 Paket Internet : {row['PAKET']}
+💰 Tagihan : {rupiah(row['HARGA'])}
+📅 Jatuh Tempo : Besok tanggal {int(row['JATUH TEMPO'])}
 
-Mohon melakukan pembayaran sebelum jatuh tempo agar layanan internet tetap aktif dan lancar.
+Silakan melakukan pembayaran melalui:
 
-Terima kasih.
+🏦 BCA
+1831149782
+a.n. Aceng Abdul Roup
 
-Admin JASUND.NET"""
+🏦 BRI
+4062 0103 3487 530
+a.n. Aceng Abdul Roup
+
+📱 DANA
+081395440454
+a.n. Aceng Abdul Roup
+
+Setelah melakukan pembayaran, mohon kirimkan bukti transfer kepada admin JASUND.NET.
+
+Pembayaran juga dapat dilakukan secara langsung ke kantor JASUND.NET.
+
+⚠️ Abaikan pesan ini apabila Bapak/Ibu telah melakukan pembayaran sebelumnya.
+
+Terima kasih atas kepercayaan Bapak/Ibu menggunakan layanan internet JASUND.NET.
+
+Hormat kami,
+
+Admin JASUND.NET
+"""
+
+
+def tombol_wa(no, pesan, teks="💬 Kirim Manual WhatsApp"):
+    link = "https://wa.me/" + no + "?text=" + urllib.parse.quote(pesan)
+    st.markdown(
+        f"""
+        <a href="{link}" target="_blank" class="wa-button">
+            {teks}
+        </a>
+        """,
+        unsafe_allow_html=True
+    )
+
+def get_secret(name):
+    try:
+        return st.secrets[name]
+    except:
+        return ""
 
 def kirim_fonnte(token, target, pesan):
     return requests.post(
@@ -94,12 +133,6 @@ def kirim_telegram(token, chat_id, pesan):
         data={"chat_id": chat_id, "text": pesan},
         timeout=30
     )
-
-def get_secret(name):
-    try:
-        return st.secrets[name]
-    except:
-        return ""
 
 FONNTE_TOKEN = get_secret("FONNTE_TOKEN")
 TELEGRAM_BOT_TOKEN = get_secret("TELEGRAM_BOT_TOKEN")
@@ -121,15 +154,20 @@ st.markdown("""
 <style>
 .stApp {
     background:
-    radial-gradient(circle at top left, rgba(59,130,246,.35), transparent 35%),
-    radial-gradient(circle at top right, rgba(236,72,153,.25), transparent 30%),
+    radial-gradient(circle at top left, rgba(34,197,94,.25), transparent 32%),
+    radial-gradient(circle at top right, rgba(168,85,247,.30), transparent 32%),
     linear-gradient(135deg, #020617 0%, #071426 45%, #022c22 100%);
     color:white;
 }
+
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, #020617, #0f172a, #111827);
 }
-h1,h2,h3,h4,p,label {color:#f8fafc !important;}
+
+h1,h2,h3,h4,p,label {
+    color:#f8fafc !important;
+}
+
 .main-title {
     font-size:46px;
     font-weight:900;
@@ -137,60 +175,74 @@ h1,h2,h3,h4,p,label {color:#f8fafc !important;}
     -webkit-background-clip:text;
     -webkit-text-fill-color:transparent;
 }
+
 .running {
     padding:14px 22px;
     border-radius:18px;
-    background:linear-gradient(90deg,rgba(34,197,94,.22),rgba(56,189,248,.18),rgba(168,85,247,.18));
+    background:linear-gradient(90deg,rgba(34,197,94,.25),rgba(56,189,248,.20),rgba(168,85,247,.20));
     border:1px solid rgba(255,255,255,.18);
+    color:white;
+    font-weight:700;
 }
+
 .card-green,.card-blue,.card-purple,.card-orange,.card-red {
     padding:24px;
     border-radius:24px;
     color:white;
     box-shadow:0 0 30px rgba(255,255,255,.25);
 }
+
 .card-green{background:linear-gradient(135deg,#16a34a,#22c55e);}
 .card-blue{background:linear-gradient(135deg,#0284c7,#38bdf8);}
 .card-purple{background:linear-gradient(135deg,#7c3aed,#c084fc);}
 .card-orange{background:linear-gradient(135deg,#ea580c,#facc15);}
 .card-red{background:linear-gradient(135deg,#dc2626,#fb7185);}
-.metric-label{font-size:15px;font-weight:600;}
+
+.metric-label{font-size:15px;font-weight:700;}
 .metric-value{font-size:34px;font-weight:900;margin-top:8px;}
+
+.wa-button {
+    display:inline-block;
+    background:linear-gradient(135deg,#25D366,#128C7E);
+    color:white !important;
+    padding:12px 24px;
+    border-radius:14px;
+    text-decoration:none !important;
+    font-weight:900;
+    font-size:16px;
+    box-shadow:0 0 22px rgba(37,211,102,.45);
+    margin-top:8px;
+    margin-bottom:18px;
+}
+
+.wa-button:hover {
+    background:linear-gradient(135deg,#16a34a,#059669);
+    color:white !important;
+    transform:scale(1.03);
+}
+
+.stButton > button {
+    background:linear-gradient(135deg,#22c55e,#06b6d4) !important;
+    color:white !important;
+    border:none !important;
+    border-radius:14px !important;
+    font-weight:900 !important;
+    padding:10px 22px !important;
+    box-shadow:0 0 18px rgba(34,197,94,.35) !important;
+}
+
 .clean-box{
     padding:18px;
     border-radius:18px;
     background:rgba(255,255,255,.08);
     border:1px solid rgba(255,255,255,.15);
-    /* Tombol Premium */
-.stButton > button {
-    background: linear-gradient(135deg,#22c55e,#06b6d4) !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 12px !important;
-    font-weight: bold !important;
-    padding: 10px 20px !important;
-}
-
-.stButton > button:hover {
-    background: linear-gradient(135deg,#16a34a,#0284c7) !important;
-    color: white !important;
-}
-
-/* Link Button WhatsApp */
-.stLinkButton a {
-    background: linear-gradient(135deg,#25D366,#128C7E) !important;
-    color: white !important;
-    border-radius: 12px !important;
-    padding: 10px 20px !important;
-    font-weight: bold !important;
-    text-decoration: none !important;
-}
+    color:white;
 }
 </style>
 """, unsafe_allow_html=True)
 
 st.sidebar.title("📡 JASUND.NET")
-st.sidebar.caption("ISP Billing Premium V6")
+st.sidebar.caption("ISP Billing Premium V7")
 
 menu = st.sidebar.radio("Menu", [
     "🏠 Dashboard",
@@ -203,15 +255,12 @@ menu = st.sidebar.radio("Menu", [
     "⚙️ Status Sistem"
 ])
 
-st.markdown('<div class="main-title">📡 JASUND.NET ISP BILLING V6</div>', unsafe_allow_html=True)
-st.write("Database Google Sheets • Auto Billing • Dashboard Premium")
+st.markdown('<div class="main-title">📡 JASUND.NET ISP BILLING V7</div>', unsafe_allow_html=True)
+st.write("Google Sheets Database • Auto Billing • WhatsApp Fonnte • Telegram Report")
 
 st.markdown(f"""
 <div class="running">
-🚀 Status: <b>ONLINE</b> |
-📅 Hari ini WIB: <b>{hari_ini}</b> |
-📨 Cek H-1 tanggal: <b>{besok.day}</b> |
-☁️ Database: <b>Google Sheets</b>
+🚀 ONLINE | 📅 Hari ini WIB: <b>{hari_ini}</b> | 📨 Cek H-1 tanggal: <b>{besok.day}</b> | ☁️ Database: <b>Google Sheets</b>
 </div>
 """, unsafe_allow_html=True)
 
@@ -241,7 +290,6 @@ if menu == "🏠 Dashboard":
 
     st.write("")
     st.subheader("📨 Pelanggan Jatuh Tempo Besok")
-
     calon = df[(df["JATUH TEMPO"] == besok.day) & (df["STATUS"] == "Belum Bayar")]
     if len(calon) == 0:
         st.success("Tidak ada pelanggan H-1 besok.")
@@ -254,16 +302,14 @@ if menu == "🏠 Dashboard":
     with col1:
         st.subheader("📶 Sebaran Paket")
         if total:
-            paket_df = df["PAKET"].value_counts()
-            st.bar_chart(paket_df)
+            st.bar_chart(df["PAKET"].value_counts())
         else:
             st.info("Belum ada data.")
 
     with col2:
         st.subheader("💰 Status Pembayaran")
         if total:
-            status_df = df["STATUS"].value_counts()
-            st.bar_chart(status_df)
+            st.bar_chart(df["STATUS"].value_counts())
         else:
             st.info("Belum ada data.")
 
@@ -386,8 +432,7 @@ elif menu == "📨 Invoice H-1":
             st.write("Tagihan:", rupiah(row["HARGA"]))
             st.text_area("Preview Invoice", pesan, height=220, key=f"preview_{i}")
 
-            link = "https://wa.me/" + no + "?text=" + urllib.parse.quote(pesan)
-            st.link_button("Kirim Manual WhatsApp", link)
+            tombol_wa(no, pesan)
 
             if FONNTE_TOKEN:
                 if st.button(f"🚀 Kirim Fonnte ke {row['NAMA']}", key=f"fonnte_{i}"):
@@ -397,11 +442,11 @@ elif menu == "📨 Invoice H-1":
                     else:
                         st.error(hasil.text)
             else:
-                st.info("Token Fonnte disimpan di GitHub Actions. Pengiriman otomatis tetap berjalan harian.")
+                st.info("Auto WhatsApp tetap berjalan lewat GitHub Actions setiap hari.")
 
         if st.button("🔔 Kirim Laporan Telegram"):
             if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-                st.info("Telegram manual belum aktif di Streamlit Secrets. Auto Telegram tetap berjalan lewat GitHub Actions.")
+                st.info("Auto Telegram tetap berjalan lewat GitHub Actions.")
             else:
                 h = kirim_telegram(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, laporan)
                 if h.status_code == 200:
@@ -448,9 +493,8 @@ elif menu == "⚙️ Status Sistem":
     ✅ Database: Google Sheets<br>
     ✅ Hari ini WIB: {hari_ini}<br>
     ✅ Auto Billing: GitHub Actions jam 08:00 WIB<br>
-    ✅ WhatsApp API: Fonnte via GitHub Secrets<br>
-    ✅ Telegram Report: via GitHub Secrets<br>
+    ✅ WhatsApp API: Fonnte<br>
+    ✅ Telegram Report: Aktif<br>
+    ✅ Versi: JASUND.NET V7 ISP PREMIUM
     </div>
     """, unsafe_allow_html=True)
-
-    st.info("Token sudah tidak ditampilkan di sidebar agar tampilan lebih bersih dan aman.")
