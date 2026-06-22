@@ -6,9 +6,10 @@ import urllib.parse
 import gspread
 from google.oauth2.service_account import Credentials
 from fpdf import FPDF
+from io import BytesIO
 
 st.set_page_config(
-    page_title="JASUND.NET V9 ISP PRO MAX",
+    page_title="JASUND.NET V10 ULTIMATE CEO",
     page_icon="📡",
     layout="wide"
 )
@@ -26,7 +27,13 @@ def tanggal_wib():
     return (datetime.utcnow() + timedelta(hours=7)).date()
 
 def bulan_tahun():
-    return tanggal_wib().strftime("%B %Y")
+    bulan_id = {
+        1: "Januari", 2: "Februari", 3: "Maret", 4: "April",
+        5: "Mei", 6: "Juni", 7: "Juli", 8: "Agustus",
+        9: "September", 10: "Oktober", 11: "November", 12: "Desember"
+    }
+    tgl = tanggal_wib()
+    return f"{bulan_id[tgl.month]} {tgl.year}"
 
 def koneksi_sheet():
     scope = [
@@ -55,13 +62,25 @@ def load_data():
     df["HARGA"] = pd.to_numeric(df["HARGA"], errors="coerce").fillna(0).astype(int)
     df["JATUH TEMPO"] = pd.to_numeric(df["JATUH TEMPO"], errors="coerce").fillna(1).astype(int)
     df["NO WA"] = df["NO WA"].astype(str)
+
     df["STATUS"] = df["STATUS"].astype(str).str.strip().str.lower()
     df["STATUS"] = df["STATUS"].replace({
-    "belum bayar": "Belum Bayar",
-    "lunas": "Lunas",
-    "menunggu verifikasi": "Menunggu Verifikasi"
-})
-    df["STATUS AKUN"] = df["STATUS AKUN"].replace("", "Aktif").fillna("Aktif")
+        "": "Belum Bayar",
+        "belum bayar": "Belum Bayar",
+        "lunas": "Lunas",
+        "menunggu verifikasi": "Menunggu Verifikasi",
+        "nan": "Belum Bayar"
+    })
+
+    df["STATUS AKUN"] = df["STATUS AKUN"].astype(str).str.strip().str.lower()
+    df["STATUS AKUN"] = df["STATUS AKUN"].replace({
+        "": "Aktif",
+        "aktif": "Aktif",
+        "menunggak": "Menunggak",
+        "suspend": "Suspend",
+        "nan": "Aktif"
+    })
+
     df["PERIODE"] = df["PERIODE"].replace("", bulan_tahun()).fillna(bulan_tahun())
 
     return df[KOLOM]
@@ -89,16 +108,25 @@ def buat_invoice_no(row):
 def get_secret(name):
     try:
         return st.secrets[name]
-    except:
+    except Exception:
         return ""
 
 FONNTE_TOKEN = get_secret("FONNTE_TOKEN")
+TELEGRAM_BOT_TOKEN = get_secret("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = get_secret("TELEGRAM_CHAT_ID")
 
 def kirim_fonnte(token, target, pesan):
     return requests.post(
         "https://api.fonnte.com/send",
         headers={"Authorization": token},
         data={"target": target, "message": pesan, "countryCode": "62"},
+        timeout=30
+    )
+
+def kirim_telegram(token, chat_id, pesan):
+    return requests.post(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        data={"chat_id": chat_id, "text": pesan},
         timeout=30
     )
 
@@ -240,7 +268,6 @@ def buat_pdf(row):
     y_start = pdf.get_y()
     pdf.multi_cell(105, 10, clean_text(desc), border=1)
 
-    y_after = pdf.get_y()
     pdf.set_xy(115, y_start)
     pdf.cell(25, 20, "1", border=1, align="C")
     pdf.set_xy(140, y_start)
@@ -314,6 +341,22 @@ def buat_pdf(row):
 
     return bytes(pdf.output(dest="S"))
 
+def warna_catatan(text):
+    s = str(text).lower()
+    if "vip" in s:
+        return "⭐ VIP"
+    if "menunggak" in s or "ingatkan" in s or "perlu" in s:
+        return "⚠️ Perlu Perhatian"
+    if "bayar awal" in s or "lancar" in s:
+        return "✅ Pelanggan Baik"
+    return "Normal"
+
+def export_excel_bytes(df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Pelanggan")
+    return output.getvalue()
+
 # DATA
 df = load_data()
 hari_ini = tanggal_wib()
@@ -326,6 +369,7 @@ menunggu = len(df[df["STATUS"] == "Menunggu Verifikasi"]) if total else 0
 aktif = len(df[df["STATUS AKUN"] == "Aktif"]) if total else 0
 suspend = len(df[df["STATUS AKUN"] == "Suspend"]) if total else 0
 menunggak = len(df[df["STATUS AKUN"] == "Menunggak"]) if total else 0
+vip = len(df[df["CATATAN"].astype(str).str.contains("VIP", case=False, na=False)]) if total else 0
 h1 = len(df[(df["JATUH TEMPO"] == besok.day) & (df["STATUS"] == "Belum Bayar")]) if total else 0
 hari_ini_jt = len(df[(df["JATUH TEMPO"] == hari_ini.day) & (df["STATUS"] == "Belum Bayar")]) if total else 0
 total_tagihan = df["HARGA"].sum() if total else 0
@@ -374,6 +418,7 @@ h1,h2,h3,h4,p,label {color:#f8fafc !important;}
 .orange{background:linear-gradient(135deg,#ea580c,#facc15);}
 .red{background:linear-gradient(135deg,#dc2626,#fb7185);}
 .dark{background:linear-gradient(135deg,#334155,#0f172a);}
+.gold{background:linear-gradient(135deg,#f59e0b,#fde047);}
 .metric-label{font-size:15px;font-weight:700;}
 .metric-value{font-size:34px;font-weight:900;margin-top:8px;}
 .wa-button {
@@ -411,7 +456,7 @@ h1,h2,h3,h4,p,label {color:#f8fafc !important;}
 """, unsafe_allow_html=True)
 
 st.sidebar.title("📡 JASUND.NET")
-st.sidebar.caption("ISP Billing V9 Pro Max")
+st.sidebar.caption("V10 Ultimate CEO Edition")
 
 menu = st.sidebar.radio("Menu", [
     "🏠 Dashboard CEO",
@@ -421,12 +466,14 @@ menu = st.sidebar.radio("Menu", [
     "📨 Invoice H-1",
     "💳 Pembayaran Masuk",
     "📄 Invoice PDF",
+    "📣 WA Blast",
+    "📈 Export Excel",
     "📊 Rekap",
     "⚙️ Status Sistem"
 ])
 
-st.markdown('<div class="main-title">📡 JASUND.NET ISP BILLING V9 PRO MAX</div>', unsafe_allow_html=True)
-st.write("Dashboard CEO • Google Sheets • Auto Billing H-1 • Invoice Pro • Pembayaran Lunas")
+st.markdown('<div class="main-title">📡 JASUND.NET V10 ULTIMATE CEO EDITION</div>', unsafe_allow_html=True)
+st.write("Dashboard CEO • VIP Customer • WA Blast • Export Excel • Google Sheets • Auto Billing H-1")
 
 st.markdown(f"""
 <div class="running">
@@ -441,7 +488,7 @@ if menu == "🏠 Dashboard CEO":
     cards = [
         ("👥 Total Pelanggan", total, "green"),
         ("🟢 Aktif", aktif, "blue"),
-        ("⚠️ Menunggak", menunggak, "orange"),
+        ("⭐ VIP", vip, "gold"),
         ("⛔ Suspend", suspend, "red"),
     ]
     for col, (label, val, warna) in zip([c1,c2,c3,c4], cards):
@@ -482,6 +529,13 @@ if menu == "🏠 Dashboard CEO":
     else:
         st.dataframe(calon, use_container_width=True)
 
+    st.subheader("📅 Pelanggan Jatuh Tempo Hari Ini")
+    jt_hari_ini = df[(df["JATUH TEMPO"] == hari_ini.day) & (df["STATUS"] == "Belum Bayar")]
+    if len(jt_hari_ini) == 0:
+        st.info("Tidak ada jatuh tempo hari ini.")
+    else:
+        st.dataframe(jt_hari_ini, use_container_width=True)
+
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("📶 Sebaran Paket")
@@ -491,6 +545,17 @@ if menu == "🏠 Dashboard CEO":
         st.subheader("💰 Status Pembayaran")
         if total:
             st.bar_chart(df["STATUS"].value_counts())
+
+    st.subheader("🏆 Top 10 Pelanggan Tagihan Terbesar")
+    if total:
+        st.dataframe(df.sort_values("HARGA", ascending=False)[["NAMA", "PAKET", "HARGA", "STATUS", "CATATAN"]].head(10), use_container_width=True)
+
+    st.subheader("⭐ Pelanggan VIP")
+    vip_df = df[df["CATATAN"].astype(str).str.contains("VIP", case=False, na=False)]
+    if len(vip_df) == 0:
+        st.info("Belum ada pelanggan VIP. Isi CATATAN dengan kata VIP untuk menandai.")
+    else:
+        st.dataframe(vip_df, use_container_width=True)
 
 elif menu == "➕ Tambah Pelanggan":
     st.subheader("➕ Tambah Pelanggan Baru")
@@ -502,7 +567,7 @@ elif menu == "➕ Tambah Pelanggan":
         paket = st.selectbox("Paket Internet", ["5 Mbps", "6 Mbps", "7 Mbps", "8 Mbps", "9 Mbps", "10 Mbps", "Custom"])
         harga = st.number_input("Harga Bulanan", min_value=0, step=10000)
         jatuh = st.number_input("Tanggal Jatuh Tempo", min_value=1, max_value=31, step=1)
-        catatan = st.text_area("Catatan")
+        catatan = st.text_area("Catatan", placeholder="Contoh: VIP, bayar awal, perlu diingatkan, rumah ujung gang")
         simpan = st.form_submit_button("💾 SIMPAN PELANGGAN")
 
     if simpan:
@@ -533,8 +598,11 @@ elif menu == "👥 Data Pelanggan":
     st.subheader("👥 Data Pelanggan")
     cari = st.text_input("Cari pelanggan")
     tampil = df.copy()
+    tampil["LABEL CATATAN"] = tampil["CATATAN"].apply(warna_catatan)
+
     if cari:
         tampil = tampil[tampil.astype(str).apply(lambda row: row.str.contains(cari, case=False).any(), axis=1)]
+
     st.dataframe(tampil, use_container_width=True)
 
 elif menu == "✏️ Edit / Hapus":
@@ -659,7 +727,7 @@ elif menu == "💳 Pembayaran Masuk":
                 try:
                     kirim_fonnte(FONNTE_TOKEN, no, pesan)
                     st.success("Status lunas disimpan dan WA konfirmasi terkirim.")
-                except:
+                except Exception:
                     st.success("Status lunas disimpan. WA konfirmasi gagal dikirim.")
             else:
                 tombol_wa(no, pesan, "💬 Kirim WA Konfirmasi Lunas")
@@ -689,6 +757,62 @@ elif menu == "📄 Invoice PDF":
             mime="application/pdf"
         )
 
+elif menu == "📣 WA Blast":
+    st.subheader("📣 WA Blast Pelanggan")
+    st.warning("Gunakan fitur ini secukupnya agar nomor WA tidak dianggap spam.")
+
+    target = st.selectbox("Target", ["Semua Pelanggan", "Belum Bayar", "Lunas", "Aktif", "VIP"])
+    pesan = st.text_area("Isi Pesan Broadcast", height=180)
+
+    if target == "Semua Pelanggan":
+        target_df = df.copy()
+    elif target == "Belum Bayar":
+        target_df = df[df["STATUS"] == "Belum Bayar"]
+    elif target == "Lunas":
+        target_df = df[df["STATUS"] == "Lunas"]
+    elif target == "Aktif":
+        target_df = df[df["STATUS AKUN"] == "Aktif"]
+    else:
+        target_df = df[df["CATATAN"].astype(str).str.contains("VIP", case=False, na=False)]
+
+    st.write("Jumlah target:", len(target_df))
+
+    if st.button("🚀 KIRIM WA BLAST"):
+        if not FONNTE_TOKEN:
+            st.error("FONNTE_TOKEN belum ada di Streamlit Secrets.")
+        elif not pesan:
+            st.error("Isi pesan dulu.")
+        else:
+            sukses, gagal = 0, 0
+            for _, row in target_df.iterrows():
+                try:
+                    hasil = kirim_fonnte(FONNTE_TOKEN, rapikan_wa(row["NO WA"]), pesan)
+                    if hasil.status_code == 200:
+                        sukses += 1
+                    else:
+                        gagal += 1
+                except Exception:
+                    gagal += 1
+            st.success(f"WA Blast selesai. Berhasil: {sukses}, Gagal: {gagal}")
+
+elif menu == "📈 Export Excel":
+    st.subheader("📈 Export Data Excel")
+    st.write("Download semua data pelanggan untuk arsip atau laporan.")
+
+    st.download_button(
+        "⬇️ DOWNLOAD EXCEL",
+        data=export_excel_bytes(df),
+        file_name=f"JASUNDNET_DATA_{hari_ini}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    st.download_button(
+        "⬇️ DOWNLOAD CSV",
+        data=df.to_csv(index=False).encode("utf-8"),
+        file_name=f"JASUNDNET_DATA_{hari_ini}.csv",
+        mime="text/csv"
+    )
+
 elif menu == "📊 Rekap":
     st.subheader("📊 Rekap Tagihan")
     c1, c2, c3, c4 = st.columns(4)
@@ -697,13 +821,6 @@ elif menu == "📊 Rekap":
     c3.metric("Belum Masuk", rupiah(belum_masuk))
     c4.metric("Persentase Lunas", f"{persen_lunas}%")
     st.dataframe(df, use_container_width=True)
-
-    st.download_button(
-        "⬇️ Export CSV",
-        data=df.to_csv(index=False).encode("utf-8"),
-        file_name="rekap_jasund_net.csv",
-        mime="text/csv"
-    )
 
 elif menu == "⚙️ Status Sistem":
     st.subheader("⚙️ Status Sistem")
@@ -714,7 +831,9 @@ elif menu == "⚙️ Status Sistem":
     ✅ Auto Billing: H-1 saja<br>
     ✅ WhatsApp API: Fonnte<br>
     ✅ Invoice PDF: Aktif<br>
-    ✅ Konfirmasi Lunas: Aktif<br>
-    ✅ Versi: JASUND.NET V9 ISP PREMIUM PRO MAX
+    ✅ WA Blast: Aktif<br>
+    ✅ Export Excel: Aktif<br>
+    ✅ Pelanggan VIP: Aktif<br>
+    ✅ Versi: JASUND.NET V10 ULTIMATE CEO EDITION
     </div>
     """, unsafe_allow_html=True)
