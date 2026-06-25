@@ -2,7 +2,7 @@ name: JASUND.NET Auto Billing
 
 on:
   schedule:
-    - cron: "0 1 * * *"
+    - cron: "0 1 * * *" # jam 08:00 WIB
   workflow_dispatch:
 
 jobs:
@@ -19,11 +19,12 @@ jobs:
           python-version: "3.11"
 
       - name: Install requirements
-        run: pip install pandas requests
+        run: pip install pandas requests gspread google-auth
 
       - name: Run Auto Billing
         env:
           FONNTE_TOKEN: ${{ secrets.FONNTE_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: python auto_billing.py
