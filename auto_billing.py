@@ -1,221 +1,105 @@
-import os
-import json
+import os, json
 from datetime import datetime, timedelta
-
-import pandas as pd
-import requests
-import gspread
+import pandas as pd, requests, gspread
 from google.oauth2.service_account import Credentials
 
-SHEET_ID = "1fDoA-aioZsUvx4aaTcita8ZkYapjR5bdf7ZlbqajFAA"
+SHEET_ID="1fDoA-aioZsUvx4aaTcita8ZkYapjR5bdf7ZlbqajFAA"
+FONNTE_TOKEN=os.getenv("FONNTE_TOKEN")
+TELEGRAM_BOT_TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID=os.getenv("TELEGRAM_CHAT_ID")
+GOOGLE_CREDENTIALS=os.getenv("GOOGLE_CREDENTIALS")
+KOLOM=["NAMA","NO WA","ALAMAT","PAKET","HARGA","JATUH TEMPO","STATUS","TANGGAL BAYAR","STATUS AKUN","NO INVOICE","PERIODE","METODE BAYAR","CATATAN"]
+LOG_KOLOM=["WAKTU","JENIS","NAMA","NO WA","STATUS","KETERANGAN"]
 
-FONNTE_TOKEN = os.getenv("FONNTE_TOKEN")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")
+def tanggal_wib(): return (datetime.utcnow()+timedelta(hours=7)).date()
+def waktu_wib(): return datetime.utcnow()+timedelta(hours=7)
+def rupiah(x): return f"Rp {int(x):,}".replace(",",".")
+def rapikan_wa(n):
+    n=str(n).replace(" ","").replace("-","").replace("+","")
+    if n.startswith("08"): n="62"+n[1:]
+    return n
 
-KOLOM = [
-    "NAMA", "NO WA", "ALAMAT", "PAKET", "HARGA",
-    "JATUH TEMPO", "STATUS", "TANGGAL BAYAR",
-    "STATUS AKUN", "NO INVOICE", "PERIODE",
-    "METODE BAYAR", "CATATAN"
-]
-LOG_KOLOM = ["WAKTU", "JENIS", "NAMA", "NO WA", "STATUS", "KETERANGAN"]
+def client():
+    info=json.loads(GOOGLE_CREDENTIALS)
+    scope=["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
+    return gspread.authorize(Credentials.from_service_account_info(info, scopes=scope))
 
-def tanggal_wib():
-    return (datetime.utcnow() + timedelta(hours=7)).date()
+def sh(): return client().open_by_key(SHEET_ID)
+def sheet(): return sh().sheet1
 
-def waktu_wib():
-    return datetime.utcnow() + timedelta(hours=7)
-
-def rupiah(angka):
-    return f"Rp {int(angka):,}".replace(",", ".")
-
-def rapikan_wa(nomor):
-    nomor = str(nomor).replace(" ", "").replace("-", "").replace("+", "")
-    if nomor.startswith("08"):
-        nomor = "62" + nomor[1:]
-    return nomor
-
-def koneksi_spreadsheet():
-    if not GOOGLE_CREDENTIALS:
-        raise Exception("GOOGLE_CREDENTIALS belum ada di GitHub Secrets.")
-    info = json.loads(GOOGLE_CREDENTIALS)
-    scope = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    creds = Credentials.from_service_account_info(info, scopes=scope)
-    client = gspread.authorize(creds)
-    return client.open_by_key(SHEET_ID)
-
-def koneksi_sheet():
-    return koneksi_spreadsheet().sheet1
-
-def koneksi_log_sheet():
-    sh = koneksi_spreadsheet()
-    try:
-        ws = sh.worksheet("LOG_NOTIFIKASI")
+def log_ws():
+    try: return sh().worksheet("LOG_NOTIFIKASI")
     except Exception:
-        ws = sh.add_worksheet(title="LOG_NOTIFIKASI", rows=1000, cols=10)
-        ws.update([LOG_KOLOM])
-    return ws
+        ws=sh().add_worksheet(title="LOG_NOTIFIKASI", rows=1000, cols=10); ws.update([LOG_KOLOM]); return ws
 
-def tambah_log(jenis, nama, no_wa, status, ket):
-    try:
-        ws = koneksi_log_sheet()
-        ws.append_row([
-            waktu_wib().strftime("%Y-%m-%d %H:%M:%S"),
-            str(jenis), str(nama), str(no_wa), str(status), str(ket)[:400]
-        ])
-    except Exception as e:
-        print("Gagal tambah log:", e)
+def tambah_log(jenis,nama,no,status,ket):
+    try: log_ws().append_row([waktu_wib().strftime("%Y-%m-%d %H:%M:%S"),jenis,str(nama),str(no),status,str(ket)[:400]])
+    except Exception as e: print("log gagal",e)
 
 def load_data():
-    sheet = koneksi_sheet()
-    data = sheet.get_all_records()
-    df = pd.DataFrame(data)
-    if df.empty:
-        return pd.DataFrame(columns=KOLOM)
-    for col in KOLOM:
-        if col not in df.columns:
-            df[col] = ""
-    df["HARGA"] = pd.to_numeric(df["HARGA"], errors="coerce").fillna(0).astype(int)
-    df["JATUH TEMPO"] = pd.to_numeric(df["JATUH TEMPO"], errors="coerce").fillna(1).astype(int)
-    df["NO WA"] = df["NO WA"].astype(str)
-    df["STATUS"] = df["STATUS"].astype(str).str.strip().str.lower()
-    df["STATUS"] = df["STATUS"].replace({
-        "": "Belum Bayar",
-        "belum bayar": "Belum Bayar",
-        "lunas": "Lunas",
-        "menunggu verifikasi": "Menunggu Verifikasi",
-        "nan": "Belum Bayar"
-    })
+    df=pd.DataFrame(sheet().get_all_records())
+    if df.empty: return pd.DataFrame(columns=KOLOM)
+    for c in KOLOM:
+        if c not in df.columns: df[c]=""
+    df["HARGA"]=pd.to_numeric(df["HARGA"], errors="coerce").fillna(0).astype(int)
+    df["JATUH TEMPO"]=pd.to_numeric(df["JATUH TEMPO"], errors="coerce").fillna(1).astype(int)
+    df["STATUS"]=df["STATUS"].astype(str).str.strip().str.lower().replace({"":"Belum Bayar","belum bayar":"Belum Bayar","lunas":"Lunas","menunggu verifikasi":"Menunggu Verifikasi","nan":"Belum Bayar"})
     return df[KOLOM]
 
+def kirim_fonnte(target,pesan):
+    h=requests.post("https://api.fonnte.com/send", headers={"Authorization":FONNTE_TOKEN}, data={"target":target,"message":pesan,"countryCode":"62"}, timeout=30)
+    print("Fonnte", h.status_code, h.text[:300]); return h
+
 def kirim_telegram(pesan):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram token/chat id kosong.")
-        return None
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    data = {"chat_id": TELEGRAM_CHAT_ID, "text": pesan}
-    hasil = requests.post(url, data=data, timeout=30)
-    print("Telegram status:", hasil.status_code)
-    print("Telegram response:", hasil.text[:500])
-    return hasil
+    h=requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", data={"chat_id":TELEGRAM_CHAT_ID,"text":pesan}, timeout=30)
+    print("Telegram", h.status_code, h.text[:300]); return h
 
-def kirim_fonnte(target, pesan):
-    if not FONNTE_TOKEN:
-        print("Fonnte token kosong.")
-        return None
-    url = "https://api.fonnte.com/send"
-    headers = {"Authorization": FONNTE_TOKEN}
-    data = {"target": target, "message": pesan, "countryCode": "62"}
-    hasil = requests.post(url, headers=headers, data=data, timeout=30)
-    print("Fonnte status:", hasil.status_code)
-    print("Fonnte response:", hasil.text[:500])
-    return hasil
-
-def buat_pesan_invoice(row):
-    return f"""Assalamualaikum Bapak/Ibu {row['NAMA']}
+def pesan_invoice(r):
+    return f"""Assalamualaikum Bapak/Ibu {r['NAMA']}
 
 Kami informasikan bahwa tagihan internet JASUND.NET untuk bulan ini telah terbit.
 
-Periode : {row['PERIODE']}
-Paket Internet : {row['PAKET']}
-Tagihan : {rupiah(row['HARGA'])}
-Jatuh Tempo : Besok tanggal {int(row['JATUH TEMPO'])}
+Periode : {r['PERIODE']}
+Paket Internet : {r['PAKET']}
+Tagihan : {rupiah(r['HARGA'])}
+Jatuh Tempo : Besok tanggal {int(r['JATUH TEMPO'])}
 
 Silakan melakukan pembayaran melalui:
+BCA 1831149782 a.n. Aceng Abdul Roup
+BRI 4062 0103 3487 530 a.n. Aceng Abdul Roup
+DANA 081395440454 a.n. Aceng Abdul Roup
 
-BCA
-1831149782
-a.n. Aceng Abdul Roup
-
-BRI
-4062 0103 3487 530
-a.n. Aceng Abdul Roup
-
-DANA
-081395440454
-a.n. Aceng Abdul Roup
-
-Setelah melakukan pembayaran, mohon kirimkan bukti transfer kepada admin JASUND.NET.
-
-Pembayaran juga dapat dilakukan langsung ke kantor JASUND.NET.
-
-Abaikan pesan ini apabila Bapak/Ibu telah melakukan pembayaran sebelumnya.
-
-Terima kasih atas kepercayaan Bapak/Ibu menggunakan layanan internet JASUND.NET.
+Mohon kirim bukti transfer kepada admin JASUND.NET.
+Abaikan pesan ini apabila sudah membayar.
 
 Admin JASUND.NET"""
 
 def main():
-    hari_ini = tanggal_wib()
-    besok = hari_ini + timedelta(days=1)
-    print("Tanggal WIB:", hari_ini)
-    print("Cek H-1 untuk tanggal:", besok.day)
-    try:
-        df = load_data()
+    hari=tanggal_wib(); besok=hari+timedelta(days=1)
+    print("Tanggal WIB:",hari); print("Cek H-1:",besok.day)
+    try: df=load_data()
     except Exception as e:
-        pesan_error = f"📡 JASUND.NET AUTO BILLING\n\n❌ Gagal baca Google Sheets:\n{e}"
-        print(pesan_error)
-        kirim_telegram(pesan_error)
-        return
-
-    if len(df) == 0:
-        laporan = "📡 JASUND.NET AUTO BILLING\n\nDatabase Google Sheets kosong."
-        kirim_telegram(laporan)
-        tambah_log("AUTO_H1", "-", "-", "GAGAL", laporan)
-        return
-
-    calon = df[(df["JATUH TEMPO"] == besok.day) & (df["STATUS"] == "Belum Bayar")]
-    print("Total pelanggan:", len(df))
-    print("Target H-1:", len(calon))
-
-    if len(calon) == 0:
-        laporan = (
-            f"📡 JASUND.NET AUTO BILLING\n\n"
-            f"Tanggal cek: {hari_ini}\n"
-            f"Invoice H-1 untuk jatuh tempo: {besok.day}\n\n"
-            f"Tidak ada pelanggan H-1 hari ini."
-        )
-        hasil_tg = kirim_telegram(laporan)
-        status = "SUKSES" if hasil_tg is not None and hasil_tg.status_code == 200 else "GAGAL"
-        ket = hasil_tg.text if hasil_tg is not None else "Telegram kosong"
-        tambah_log("AUTO_H1_TELEGRAM", "ADMIN", TELEGRAM_CHAT_ID, status, ket)
-        tambah_log("AUTO_H1", "-", "-", "SUKSES", "Tidak ada target H-1")
-        return
-
-    sukses = 0
-    gagal = 0
-    daftar = ""
-    for _, row in calon.iterrows():
-        nama = row["NAMA"]
-        no_wa = rapikan_wa(row["NO WA"])
-        pesan = buat_pesan_invoice(row)
+        msg=f"📡 JASUND.NET AUTO BILLING\n\n❌ Gagal baca Google Sheets:\n{e}"
+        print(msg); kirim_telegram(msg); return
+    calon=df[(df["JATUH TEMPO"]==besok.day)&(df["STATUS"]=="Belum Bayar")]
+    print("Total pelanggan:",len(df)); print("Target H-1:",len(calon))
+    if len(calon)==0:
+        msg=f"📡 JASUND.NET AUTO BILLING\n\nTanggal cek: {hari}\nInvoice H-1 untuk jatuh tempo: {besok.day}\n\nTidak ada pelanggan H-1 hari ini."
+        kirim_telegram(msg); tambah_log("AUTO_H1","-","-","SUKSES","Tidak ada target"); return
+    sukses=gagal=0; daftar=""
+    for _,r in calon.iterrows():
+        no=rapikan_wa(r["NO WA"])
         try:
-            hasil = kirim_fonnte(no_wa, pesan)
-            if hasil is not None and hasil.status_code == 200:
-                sukses += 1
-                daftar += f"✅ {nama} - {rupiah(row['HARGA'])} - {no_wa}\n"
-                tambah_log("AUTO_H1_WA", nama, no_wa, "SUKSES", hasil.text)
-                print("Berhasil:", nama, no_wa)
+            h=kirim_fonnte(no, pesan_invoice(r))
+            if h.status_code==200:
+                sukses+=1; daftar+=f"✅ {r['NAMA']} - {rupiah(r['HARGA'])} - {no}\n"; tambah_log("AUTO_H1_WA",r["NAMA"],no,"SUKSES",h.text)
             else:
-                gagal += 1
-                error_text = hasil.text if hasil is not None else "Token Fonnte kosong"
-                daftar += f"❌ {nama} - Gagal - {error_text[:80]}\n"
-                tambah_log("AUTO_H1_WA", nama, no_wa, "GAGAL", error_text)
-                print("Gagal:", nama, error_text)
+                gagal+=1; daftar+=f"❌ {r['NAMA']} - Gagal\n"; tambah_log("AUTO_H1_WA",r["NAMA"],no,"GAGAL",h.text)
         except Exception as e:
-            gagal += 1
-            daftar += f"❌ {nama} - Error: {str(e)[:80]}\n"
-            tambah_log("AUTO_H1_WA", nama, no_wa, "GAGAL", str(e))
-            print("Error:", nama, e)
+            gagal+=1; daftar+=f"❌ {r['NAMA']} - Error\n"; tambah_log("AUTO_H1_WA",r["NAMA"],no,"GAGAL",str(e))
+    laporan=f"""📡 JASUND.NET AUTO BILLING H-1
 
-    laporan = f"""📡 JASUND.NET AUTO BILLING H-1
-
-Tanggal cek: {hari_ini}
+Tanggal cek: {hari}
 Invoice H-1 untuk jatuh tempo: {besok.day}
 
 Target: {len(calon)}
@@ -225,13 +109,8 @@ Target: {len(calon)}
 Daftar:
 {daftar}
 """
-    hasil_tg = kirim_telegram(laporan)
-    if hasil_tg is not None and hasil_tg.status_code == 200:
-        tambah_log("AUTO_H1_TELEGRAM", "ADMIN", TELEGRAM_CHAT_ID, "SUKSES", hasil_tg.text)
-    else:
-        ket = hasil_tg.text if hasil_tg is not None else "Telegram token/chat id kosong"
-        tambah_log("AUTO_H1_TELEGRAM", "ADMIN", TELEGRAM_CHAT_ID, "GAGAL", ket)
+    h=kirim_telegram(laporan)
+    tambah_log("AUTO_H1_TELEGRAM","ADMIN",TELEGRAM_CHAT_ID,"SUKSES" if h.status_code==200 else "GAGAL",h.text)
     print(laporan)
 
-if __name__ == "__main__":
-    main()
+if __name__=="__main__": main()
