@@ -9,7 +9,7 @@ from fpdf import FPDF
 from io import BytesIO
 
 st.set_page_config(
-    page_title="JASUND.NET V13 NOTIFICATION CENTER",
+    page_title="JASUND.NET V14 ENTERPRISE",
     page_icon="📡",
     layout="wide"
 )
@@ -611,10 +611,11 @@ h1,h2,h3,h4,p,label {color:#f8fafc !important;}
 # SIDEBAR
 # =========================
 st.sidebar.title("📡 JASUND.NET")
-st.sidebar.caption("V13 Notification Center")
+st.sidebar.caption("V14 Enterprise Dashboard")
 
 menu = st.sidebar.radio("Menu", [
     "🏠 Dashboard CEO",
+    "✅ Sudah Bayar",
     "🔔 Notification Center",
     "➕ Tambah Pelanggan",
     "👥 Data Pelanggan",
@@ -632,7 +633,7 @@ menu = st.sidebar.radio("Menu", [
 ])
 
 st.markdown('<div class="main-title">📡 JASUND.NET V13 NOTIFICATION CENTER ISP</div>', unsafe_allow_html=True)
-st.write("Dashboard CEO • Auto Billing H-1 • Log WhatsApp • Log Telegram • Google Sheets")
+st.write("Dashboard CEO • Pelanggan Sudah Bayar • Auto Billing H-1 • Log WhatsApp • Log Telegram • Google Sheets")
 
 st.markdown(f"""
 <div class="running">
@@ -698,6 +699,33 @@ if menu == "🏠 Dashboard CEO":
     else:
         st.dataframe(jt_hari_ini, use_container_width=True)
 
+
+    st.subheader("✅ Pelanggan Sudah Bayar / Lunas")
+    lunas_df = df[df["STATUS"] == "Lunas"].copy()
+    if len(lunas_df) == 0:
+        st.info("Belum ada pelanggan yang berstatus Lunas.")
+    else:
+        st.dataframe(
+            lunas_df[[
+                "NAMA", "NO WA", "ALAMAT", "PAKET", "HARGA",
+                "TANGGAL BAYAR", "PERIODE", "METODE BAYAR", "CATATAN"
+            ]],
+            use_container_width=True
+        )
+
+    st.subheader("🔴 Pelanggan Belum Bayar")
+    belum_df = df[df["STATUS"] == "Belum Bayar"].copy()
+    if len(belum_df) == 0:
+        st.success("Semua pelanggan sudah lunas.")
+    else:
+        st.dataframe(
+            belum_df[[
+                "NAMA", "NO WA", "ALAMAT", "PAKET", "HARGA",
+                "JATUH TEMPO", "STATUS AKUN", "PERIODE"
+            ]],
+            use_container_width=True
+        )
+
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("📶 Sebaran Paket")
@@ -718,6 +746,62 @@ if menu == "🏠 Dashboard CEO":
         st.info("Belum ada pelanggan VIP. Isi CATATAN dengan kata VIP untuk menandai.")
     else:
         st.dataframe(vip_df, use_container_width=True)
+
+
+elif menu == "✅ Sudah Bayar":
+    st.subheader("✅ Pelanggan Sudah Bayar / Lunas")
+
+    lunas_df = df[df["STATUS"] == "Lunas"].copy()
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Jumlah Lunas", len(lunas_df))
+    c2.metric("Uang Masuk", rupiah(lunas_df["HARGA"].sum()) if len(lunas_df) else "Rp 0")
+    c3.metric("Persentase Lunas", f"{persen_lunas}%")
+
+    if len(lunas_df) == 0:
+        st.info("Belum ada pelanggan yang sudah bayar.")
+    else:
+        cari_lunas = st.text_input("Cari pelanggan lunas")
+        tampil = lunas_df.copy()
+
+        if cari_lunas:
+            tampil = tampil[
+                tampil.astype(str).apply(
+                    lambda row: row.str.contains(cari_lunas, case=False).any(),
+                    axis=1
+                )
+            ]
+
+        st.dataframe(
+            tampil[[
+                "NAMA", "NO WA", "ALAMAT", "PAKET", "HARGA",
+                "TANGGAL BAYAR", "PERIODE", "METODE BAYAR", "CATATAN"
+            ]],
+            use_container_width=True
+        )
+
+        st.download_button(
+            "⬇️ DOWNLOAD DATA PELANGGAN LUNAS",
+            data=tampil.to_csv(index=False).encode("utf-8"),
+            file_name=f"pelanggan_lunas_JASUNDNET_{hari_ini}.csv",
+            mime="text/csv"
+        )
+
+    st.markdown("---")
+    st.subheader("🔴 Pelanggan Belum Bayar")
+
+    belum_df = df[df["STATUS"] == "Belum Bayar"].copy()
+    if len(belum_df) == 0:
+        st.success("Semua pelanggan sudah lunas.")
+    else:
+        st.dataframe(
+            belum_df[[
+                "NAMA", "NO WA", "ALAMAT", "PAKET", "HARGA",
+                "JATUH TEMPO", "STATUS AKUN", "PERIODE"
+            ]],
+            use_container_width=True
+        )
+
 
 elif menu == "🔔 Notification Center":
     st.subheader("🔔 Notification Center")
@@ -1090,6 +1174,7 @@ elif menu == "⚙️ Status Sistem":
     ✅ WhatsApp API: Fonnte<br>
     ✅ Telegram Admin: Aktif<br>
     ✅ Notification Center: Aktif<br>
+    ✅ Dashboard Pelanggan Sudah Bayar: Aktif<br>
     ✅ Log Notifikasi: LOG_NOTIFIKASI<br>
     ✅ Invoice PDF: Aktif<br>
     ✅ WA Blast Manual: Aktif<br>
@@ -1097,6 +1182,6 @@ elif menu == "⚙️ Status Sistem":
     ✅ Laporan Bulanan PDF: Aktif<br>
     ✅ Portal Pelanggan: Aktif<br>
     ✅ Dashboard Teknisi: Aktif<br>
-    ✅ Versi: JASUND.NET V13 NOTIFICATION CENTER ISP
+    ✅ Versi: JASUND.NET V14 ENTERPRISE ISP ISP
     </div>
     """, unsafe_allow_html=True)
