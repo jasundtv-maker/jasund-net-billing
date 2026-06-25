@@ -9,7 +9,7 @@ from fpdf import FPDF
 from io import BytesIO
 
 st.set_page_config(
-    page_title="JASUND.NET V12 ENTERPRISE",
+    page_title="JASUND.NET V13 NOTIFICATION CENTER",
     page_icon="📡",
     layout="wide"
 )
@@ -23,11 +23,16 @@ KOLOM = [
     "METODE BAYAR", "CATATAN"
 ]
 
+LOG_KOLOM = ["WAKTU", "JENIS", "NAMA", "NO WA", "STATUS", "KETERANGAN"]
+
 # =========================
 # WAKTU
 # =========================
 def tanggal_wib():
     return (datetime.utcnow() + timedelta(hours=7)).date()
+
+def waktu_wib():
+    return datetime.utcnow() + timedelta(hours=7)
 
 def bulan_tahun():
     bulan_id = {
@@ -41,7 +46,7 @@ def bulan_tahun():
 # =========================
 # GOOGLE SHEETS
 # =========================
-def koneksi_sheet():
+def koneksi_client():
     scope = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
@@ -50,8 +55,22 @@ def koneksi_sheet():
         st.secrets["gcp_service_account"],
         scopes=scope
     )
-    client = gspread.authorize(creds)
-    return client.open_by_key(SHEET_ID).sheet1
+    return gspread.authorize(creds)
+
+def koneksi_spreadsheet():
+    return koneksi_client().open_by_key(SHEET_ID)
+
+def koneksi_sheet():
+    return koneksi_spreadsheet().sheet1
+
+def koneksi_log_sheet():
+    sh = koneksi_spreadsheet()
+    try:
+        ws = sh.worksheet("LOG_NOTIFIKASI")
+    except Exception:
+        ws = sh.add_worksheet(title="LOG_NOTIFIKASI", rows=1000, cols=10)
+        ws.update([LOG_KOLOM])
+    return ws
 
 def load_data():
     sheet = koneksi_sheet()
@@ -101,6 +120,30 @@ def save_data(df):
     data = [KOLOM] + df.astype(str).values.tolist()
     sheet.clear()
     sheet.update(data)
+
+def tambah_log(jenis, nama, no_wa, status, ket):
+    try:
+        ws = koneksi_log_sheet()
+        ws.append_row([
+            waktu_wib().strftime("%Y-%m-%d %H:%M:%S"),
+            str(jenis), str(nama), str(no_wa), str(status), str(ket)[:400]
+        ])
+    except Exception as e:
+        print("Gagal tambah log:", e)
+
+def load_log():
+    try:
+        ws = koneksi_log_sheet()
+        data = ws.get_all_records()
+        if not data:
+            return pd.DataFrame(columns=LOG_KOLOM)
+        log = pd.DataFrame(data)
+        for col in LOG_KOLOM:
+            if col not in log.columns:
+                log[col] = ""
+        return log[LOG_KOLOM]
+    except Exception:
+        return pd.DataFrame(columns=LOG_KOLOM)
 
 # =========================
 # FORMAT
@@ -461,6 +504,7 @@ def status_badge(status):
 # DATA
 # =========================
 df = load_data()
+df_log = load_log()
 hari_ini = tanggal_wib()
 besok = hari_ini + timedelta(days=1)
 
@@ -480,6 +524,8 @@ belum_masuk = df[df["STATUS"] != "Lunas"]["HARGA"].sum() if total else 0
 persen_lunas = round((lunas / total) * 100) if total else 0
 arpu = round(total_tagihan / total) if total else 0
 estimasi_bulan_depan = total_tagihan
+notif_sukses = len(df_log[df_log["STATUS"].astype(str).str.upper().str.contains("SUKSES", na=False)]) if len(df_log) else 0
+notif_gagal = len(df_log[df_log["STATUS"].astype(str).str.upper().str.contains("GAGAL", na=False)]) if len(df_log) else 0
 
 # =========================
 # STYLE
@@ -565,10 +611,11 @@ h1,h2,h3,h4,p,label {color:#f8fafc !important;}
 # SIDEBAR
 # =========================
 st.sidebar.title("📡 JASUND.NET")
-st.sidebar.caption("V12 Enterprise H-1 Only")
+st.sidebar.caption("V13 Notification Center")
 
 menu = st.sidebar.radio("Menu", [
     "🏠 Dashboard CEO",
+    "🔔 Notification Center",
     "➕ Tambah Pelanggan",
     "👥 Data Pelanggan",
     "✏️ Edit / Hapus",
@@ -584,8 +631,8 @@ menu = st.sidebar.radio("Menu", [
     "⚙️ Status Sistem"
 ])
 
-st.markdown('<div class="main-title">📡 JASUND.NET V12 ENTERPRISE ISP</div>', unsafe_allow_html=True)
-st.write("Dashboard CEO • H-1 Only • Laporan PDF • Portal Pelanggan • Teknisi • Google Sheets")
+st.markdown('<div class="main-title">📡 JASUND.NET V13 NOTIFICATION CENTER ISP</div>', unsafe_allow_html=True)
+st.write("Dashboard CEO • Auto Billing H-1 • Log WhatsApp • Log Telegram • Google Sheets")
 
 st.markdown(f"""
 <div class="running">
@@ -629,8 +676,8 @@ if menu == "🏠 Dashboard CEO":
     cards3 = [
         ("📨 H-1 Besok", h1, "orange"),
         ("📅 Jatuh Tempo Hari Ini", hari_ini_jt, "purple"),
-        ("💎 ARPU", rupiah(arpu), "dark"),
-        ("📈 Estimasi Bulan Depan", rupiah(estimasi_bulan_depan), "green"),
+        ("✅ Notif Sukses", notif_sukses, "green"),
+        ("❌ Notif Gagal", notif_gagal, "red"),
     ]
     for col, (label, val, warna) in zip([c9,c10,c11,c12], cards3):
         with col:
@@ -672,6 +719,35 @@ if menu == "🏠 Dashboard CEO":
     else:
         st.dataframe(vip_df, use_container_width=True)
 
+elif menu == "🔔 Notification Center":
+    st.subheader("🔔 Notification Center")
+    st.write("Riwayat pengiriman WhatsApp, Telegram, dan auto billing tersimpan di tab LOG_NOTIFIKASI Google Sheets.")
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Log", len(df_log))
+    c2.metric("Sukses", notif_sukses)
+    c3.metric("Gagal", notif_gagal)
+
+    if len(df_log) == 0:
+        st.info("Belum ada log notifikasi.")
+    else:
+        st.dataframe(df_log.tail(150).sort_index(ascending=False), use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("🧪 Test Telegram Admin")
+    pesan_test = st.text_area("Isi pesan test Telegram", value="📡 Test notifikasi Telegram JASUND.NET V13 berhasil.")
+    if st.button("KIRIM TEST TELEGRAM"):
+        if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+            st.error("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID belum ada di Streamlit Secrets.")
+        else:
+            hasil = kirim_telegram(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, pesan_test)
+            if hasil.status_code == 200:
+                tambah_log("TEST_TELEGRAM", "ADMIN", TELEGRAM_CHAT_ID, "SUKSES", hasil.text)
+                st.success("Telegram berhasil dikirim.")
+            else:
+                tambah_log("TEST_TELEGRAM", "ADMIN", TELEGRAM_CHAT_ID, "GAGAL", hasil.text)
+                st.error(hasil.text)
+
 elif menu == "➕ Tambah Pelanggan":
     st.subheader("➕ Tambah Pelanggan Baru")
 
@@ -706,6 +782,7 @@ elif menu == "➕ Tambah Pelanggan":
             }])
             df = pd.concat([df, baru], ignore_index=True)
             save_data(df)
+            tambah_log("TAMBAH_PELANGGAN", nama, rapikan_wa(wa), "SUKSES", "Pelanggan baru ditambahkan")
             st.success("Pelanggan berhasil ditambahkan.")
             st.rerun()
 
@@ -764,6 +841,7 @@ elif menu == "✏️ Edit / Hapus":
                     if not df.at[idx, "NO INVOICE"]:
                         df.at[idx, "NO INVOICE"] = buat_invoice_no(df.loc[idx])
                 save_data(df)
+                tambah_log("UPDATE_DATA", nama, rapikan_wa(wa), "SUKSES", f"Status={status}, Akun={status_akun}")
                 st.success("Data berhasil diupdate.")
                 st.rerun()
 
@@ -817,8 +895,10 @@ elif menu == "📨 Invoice H-1":
                 if st.button(f"🚀 KIRIM FONNTE KE {row['NAMA']}", key=f"fonnte_{i}"):
                     hasil = kirim_fonnte(FONNTE_TOKEN, no, pesan)
                     if hasil.status_code == 200:
+                        tambah_log("INVOICE_MANUAL", row["NAMA"], no, "SUKSES", hasil.text)
                         st.success("Invoice berhasil dikirim.")
                     else:
+                        tambah_log("INVOICE_MANUAL", row["NAMA"], no, "GAGAL", hasil.text)
                         st.error(hasil.text)
 
 elif menu == "💳 Pembayaran Masuk":
@@ -1008,12 +1088,15 @@ elif menu == "⚙️ Status Sistem":
     ✅ Hari ini WIB: {hari_ini}<br>
     ✅ Auto Billing: H-1 saja<br>
     ✅ WhatsApp API: Fonnte<br>
+    ✅ Telegram Admin: Aktif<br>
+    ✅ Notification Center: Aktif<br>
+    ✅ Log Notifikasi: LOG_NOTIFIKASI<br>
     ✅ Invoice PDF: Aktif<br>
     ✅ WA Blast Manual: Aktif<br>
     ✅ Export Excel: Aktif<br>
     ✅ Laporan Bulanan PDF: Aktif<br>
     ✅ Portal Pelanggan: Aktif<br>
     ✅ Dashboard Teknisi: Aktif<br>
-    ✅ Versi: JASUND.NET V12 ENTERPRISE ISP
+    ✅ Versi: JASUND.NET V13 NOTIFICATION CENTER ISP
     </div>
     """, unsafe_allow_html=True)
