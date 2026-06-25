@@ -8,19 +8,15 @@ on:
 jobs:
   send-invoice:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install requirements
         run: pip install pandas requests gspread google-auth
-
       - name: Run Auto Billing
         env:
           FONNTE_TOKEN: ${{ secrets.FONNTE_TOKEN }}
