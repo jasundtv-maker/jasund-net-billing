@@ -92,13 +92,47 @@ def save_main(df):
 
 def load_table(name, headers, money_col=None):
     ws = sheet_by_name(name, headers)
-    df = pd.DataFrame(ws.get_all_records())
-    if df.empty: df = pd.DataFrame(columns=headers)
+
+    # Aman untuk tab yang header-nya tidak berada di baris 1
+    # atau ada baris kosong di atasnya.
+    values = ws.get_all_values()
+    header_index = None
+
+    for i, row in enumerate(values):
+        clean = [str(x).strip().upper() for x in row]
+        if all(h.upper() in clean for h in headers):
+            header_index = i
+            break
+
+    if header_index is None:
+        ws.clear()
+        ws.update([headers])
+        return pd.DataFrame(columns=headers)
+
+    header_row = [str(x).strip() for x in values[header_index]]
+    data_rows = values[header_index + 1:]
+
+    data_rows = [r for r in data_rows if any(str(x).strip() for x in r)]
+
+    if not data_rows:
+        df = pd.DataFrame(columns=headers)
+    else:
+        max_len = len(header_row)
+        fixed_rows = []
+        for r in data_rows:
+            r = r + [""] * (max_len - len(r))
+            fixed_rows.append(r[:max_len])
+        df = pd.DataFrame(fixed_rows, columns=header_row)
+
     for c in headers:
-        if c not in df.columns: df[c] = ""
+        if c not in df.columns:
+            df[c] = ""
+
     if money_col:
         df[money_col] = pd.to_numeric(df[money_col], errors="coerce").fillna(0).astype(int)
+
     return df[headers]
+
 
 def save_table(name, headers, df):
     ws = sheet_by_name(name, headers)
